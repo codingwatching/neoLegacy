@@ -1031,7 +1031,7 @@ void Gui::render(float a, bool mouseFree, int xMouse, int yMouse)
                 }
             }
 
-            lines.push_back(L""; // Add a spacer line
+            lines.push_back(L""); // Add a spacer line
             for (int i = eTerrainFeature_Stronghold; i <= static_cast<int>(eTerrainFeature_Ravine); i++)
             {
                 lines.push_back(wfeature[i]);

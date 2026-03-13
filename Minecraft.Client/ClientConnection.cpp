@@ -294,7 +294,7 @@ void ClientConnection::handleLogin(shared_ptr<LoginPacket> packet)
 		Level *dimensionLevel = minecraft->getLevel( packet->dimension );
 		if( dimensionLevel == nullptr )
 		{
-			level = new MultiPlayerLevel(this, new LevelSettings(packet->seed, GameType::byId(packet->gameType), false, false, packet->m_newSeaLevel, packet->m_pLevelType, packet->m_xzSize, packet->m_hellScale), packet->dimension, packet->difficulty);
+			level = new MultiPlayerLevel(this, new LevelSettings(packet->seed, GameType::byId(packet->gameType), false, packet->m_isHardcore, packet->m_newSeaLevel, packet->m_pLevelType, packet->m_xzSize, packet->m_hellScale), packet->dimension, packet->difficulty);
 
 			// 4J Stu - We want to share the SavedDataStorage between levels
 			int otherDimensionId = packet->dimension == 0 ? -1 : 0;
@@ -363,7 +363,7 @@ void ClientConnection::handleLogin(shared_ptr<LoginPacket> packet)
 				activeLevel = minecraft->getLevel(otherDimensionId);
 			}
 
-			MultiPlayerLevel *dimensionLevel = new MultiPlayerLevel(this, new LevelSettings(packet->seed, GameType::byId(packet->gameType), false, false, packet->m_newSeaLevel, packet->m_pLevelType, packet->m_xzSize, packet->m_hellScale), packet->dimension, packet->difficulty);
+			MultiPlayerLevel *dimensionLevel = new MultiPlayerLevel(this, new LevelSettings(packet->seed, GameType::byId(packet->gameType), false, packet->m_isHardcore, packet->m_newSeaLevel, packet->m_pLevelType, packet->m_xzSize, packet->m_hellScale), packet->dimension, packet->difficulty);
 
 			dimensionLevel->savedDataStorage = activeLevel->savedDataStorage;
 
@@ -2798,7 +2798,7 @@ void ClientConnection::handleRespawn(shared_ptr<RespawnPacket> packet)
 		MultiPlayerLevel *dimensionLevel = (MultiPlayerLevel *)minecraft->getLevel( packet->dimension );
 		if( dimensionLevel == nullptr )
 		{
-			dimensionLevel = new MultiPlayerLevel(this, new LevelSettings(packet->mapSeed, packet->playerGameType, false, minecraft->level->getLevelData()->isHardcore(), packet->m_newSeaLevel, packet->m_pLevelType, packet->m_xzSize, packet->m_hellScale), packet->dimension, packet->difficulty);
+			dimensionLevel = new MultiPlayerLevel(this, new LevelSettings(packet->mapSeed, packet->playerGameType, false, packet->m_isHardcore, packet->m_newSeaLevel, packet->m_pLevelType, packet->m_xzSize, packet->m_hellScale), packet->dimension, packet->difficulty);
 
 			// 4J Stu - We want to shared the savedDataStorage between both levels
 			//if( dimensionLevel->savedDataStorage != nullptr )

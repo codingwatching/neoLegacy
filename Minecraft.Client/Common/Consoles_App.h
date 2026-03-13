@@ -805,6 +805,10 @@ public:
 	void SetCorruptSaveDeleted(bool bVal) {m_bCorruptSaveDeleted=bVal;}
 	bool GetCorruptSaveDeleted(void) {return m_bCorruptSaveDeleted;}
 
+	// 4J Added: Store save folder name for hardcore world deletion on Win64
+	void SetCurrentSaveFolderName(const wstring& name) { m_currentSaveFolderName = name; }
+	const wstring& GetCurrentSaveFolderName() const { return m_currentSaveFolderName; }
+
 	void EnterSaveNotificationSection();
 	void LeaveSaveNotificationSection();
 private:
@@ -826,6 +830,7 @@ private:
 	CRITICAL_SECTION csAdditionalSkinBoxes;
 	CRITICAL_SECTION csAnimOverrideBitmask;
 	bool m_bCorruptSaveDeleted;
+	wstring m_currentSaveFolderName; // 4J Added: for hardcore world deletion on Win64
 
 	DWORD m_dwAdditionalModelParts[XUSER_MAX_COUNT];
 

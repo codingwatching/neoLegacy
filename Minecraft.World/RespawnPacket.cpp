@@ -17,9 +17,10 @@ RespawnPacket::RespawnPacket()
 	m_newEntityId = 0;
 	m_xzSize = LEVEL_MAX_WIDTH;
 	m_hellScale = HELL_LEVEL_MAX_SCALE;
+	m_isHardcore = false;
 }
 
-RespawnPacket::RespawnPacket(char dimension, int64_t mapSeed, int mapHeight, GameType *playerGameType, char difficulty, LevelType *pLevelType, bool newSeaLevel, int newEntityId, int xzSize, int hellScale)
+RespawnPacket::RespawnPacket(char dimension, int64_t mapSeed, int mapHeight, GameType *playerGameType, char difficulty, LevelType *pLevelType, bool newSeaLevel, int newEntityId, int xzSize, int hellScale, bool isHardcore)
 {
 	this->dimension = dimension;
 	this->mapSeed = mapSeed;
@@ -31,6 +32,7 @@ RespawnPacket::RespawnPacket(char dimension, int64_t mapSeed, int mapHeight, Gam
 	this->m_newEntityId = newEntityId;
 	m_xzSize = xzSize;
 	m_hellScale = hellScale;
+	m_isHardcore = isHardcore;
 	app.DebugPrintf("RespawnPacket - Difficulty = %d\n",difficulty);
 
 }
@@ -59,6 +61,7 @@ void RespawnPacket::read(DataInputStream *dis) //throws IOException
 	m_xzSize = dis->readShort();
 	m_hellScale = dis->read();
 #endif
+	m_isHardcore = dis->readBoolean();
 	app.DebugPrintf("RespawnPacket::read - Difficulty = %d\n",difficulty);
 
 }
@@ -84,6 +87,7 @@ void RespawnPacket::write(DataOutputStream *dos) //throws IOException
 	dos->writeShort(m_xzSize);
 	dos->write(m_hellScale);
 #endif
+	dos->writeBoolean(m_isHardcore);
 }
 
 int RespawnPacket::getEstimatedSize()
@@ -93,5 +97,5 @@ int RespawnPacket::getEstimatedSize()
 	{
 		length = static_cast<int>(m_pLevelType->getGeneratorName().length());
 	}
-	return 13+length;
+	return 14+length;
 }

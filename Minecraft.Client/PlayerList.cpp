@@ -62,6 +62,7 @@ PlayerList::PlayerList(MinecraftServer *server)
 	int rawMax = server->settings->getInt(L"max-players", 8);
 	maxPlayers = static_cast<unsigned int>(Mth::clamp(rawMax, 1, MINECRAFT_NET_MAX_PLAYERS));
 	doWhiteList = false;
+	InitializeCriticalSection(&m_banCS);
 	InitializeCriticalSection(&m_kickPlayersCS);
 	InitializeCriticalSection(&m_closePlayersCS);
 }
@@ -75,6 +76,7 @@ PlayerList::~PlayerList()
 		player->gameMode = nullptr;
 	}
 
+	DeleteCriticalSection(&m_banCS);
 	DeleteCriticalSection(&m_kickPlayersCS);
 	DeleteCriticalSection(&m_closePlayersCS);
 }
@@ -266,7 +268,8 @@ bool PlayerList::placeNewPlayer(Connection *connection, shared_ptr<ServerPlayer>
 	                                                     static_cast<BYTE>(playerIndex), level->useNewSeaLevel(),
 	                                                     player->getAllPlayerGamePrivileges(),
 	                                                     level->getLevelData()->getXZSize(),
-	                                                     level->getLevelData()->getHellScale()));
+	                                                     level->getLevelData()->getHellScale(),
+	                                                     level->getLevelData()->isHardcore()));
 	playerConnection->send(std::make_shared<SetSpawnPositionPacket>(spawnPos->x, spawnPos->y, spawnPos->z));
 	playerConnection->send(std::make_shared<PlayerAbilitiesPacket>(&player->abilities));
 	playerConnection->send(std::make_shared<SetCarriedItemPacket>(player->inventory->selected));
@@ -697,6 +700,13 @@ shared_ptr<ServerPlayer> PlayerList::respawn(shared_ptr<ServerPlayer> serverPlay
 	// necessary)
 	updatePlayerGameMode(player, serverPlayer, level);
 
+	// 4J Added: Hardcore mode — force Adventure mode on respawn
+	if (server->getLevel(0)->getLevelData()->isHardcore())
+	{
+		player->gameMode->setGameModeForPlayer(GameType::ADVENTURE);
+		player->connection->send(std::make_shared<GameEventPacket>(GameEventPacket::CHANGE_GAME_MODE, GameType::ADVENTURE->getId()));
+	}
+
 	if(serverPlayer->wonGame && targetDimension == oldDimension && serverPlayer->getHealth() > 0)
 	{
 		// If the player is still alive and respawning to the same dimension, they are just being added back from someone else viewing the Win screen
@@ -734,7 +744,7 @@ shared_ptr<ServerPlayer> PlayerList::respawn(shared_ptr<ServerPlayer> serverPlay
 
 	player->connection->send( std::make_shared<RespawnPacket>( static_cast<char>(player->dimension), player->level->getSeed(), player->level->getMaxBuildHeight(),
 		player->gameMode->getGameModeForPlayer(), level->difficulty, level->getLevelData()->getGenerator(),
-		player->level->useNewSeaLevel(), player->entityId, level->getLevelData()->getXZSize(), level->getLevelData()->getHellScale() ) );
+		player->level->useNewSeaLevel(), player->entityId, level->getLevelData()->getXZSize(), level->getLevelData()->getHellScale(), level->getLevelData()->isHardcore() ) );
 	player->connection->teleport(player->x, player->y, player->z, player->yRot, player->xRot);
 	player->connection->send( std::make_shared<SetExperiencePacket>( player->experienceProgress, player->totalExperience, player->experienceLevel) );
 
@@ -851,7 +861,7 @@ void PlayerList::toggleDimension(shared_ptr<ServerPlayer> player, int targetDime
 
 	player->connection->send(std::make_shared<RespawnPacket>(static_cast<char>(player->dimension), newLevel->getSeed(), newLevel->getMaxBuildHeight(),
                                                              player->gameMode->getGameModeForPlayer(), newLevel->difficulty, newLevel->getLevelData()->getGenerator(),
-                                                             newLevel->useNewSeaLevel(), player->entityId, newLevel->getLevelData()->getXZSize(), newLevel->getLevelData()->getHellScale()));
+                                                             newLevel->useNewSeaLevel(), player->entityId, newLevel->getLevelData()->getXZSize(), newLevel->getLevelData()->getHellScale(), newLevel->getLevelData()->isHardcore()));
 
 	oldLevel->removeEntityImmediately(player);
 	player->removed = false;
@@ -1665,6 +1675,7 @@ bool PlayerList::isXuidBanned(PlayerUID xuid)
 
 	bool banned = false;
 
+	EnterCriticalSection(&m_banCS);
 	for(PlayerUID it : m_bannedXuids)
 	{
 		if( ProfileManager.AreXUIDSEqual( xuid, it ) )
@@ -1673,8 +1684,37 @@ bool PlayerList::isXuidBanned(PlayerUID xuid)
 			break;
 		}
 	}
+	LeaveCriticalSection(&m_banCS);
 
 	return banned;
+}
+
+void PlayerList::banXuid(PlayerUID xuid)
+{
+	// 4J Added - for hardcore mode ban-on-death
+	// Ban a player's XUID. Used when a player dies in a hardcore multiplayer world.
+	if(xuid == INVALID_XUID) return;
+
+	EnterCriticalSection(&m_banCS);
+
+	// Check if already banned
+	bool alreadyBanned = false;
+	for(PlayerUID it : m_bannedXuids)
+	{
+		if( ProfileManager.AreXUIDSEqual( xuid, it ) )
+		{
+			alreadyBanned = true;
+			break;
+		}
+	}
+
+	if(!alreadyBanned)
+	{
+		m_bannedXuids.push_back(xuid);
+		app.DebugPrintf("PlayerList::banXuid - Player XUID banned for hardcore death\n");
+	}
+
+	LeaveCriticalSection(&m_banCS);
 }
 
 // AP added for Vita so the range can be increased once the level starts

@@ -2289,3 +2289,11 @@
 #define IDS_RICHPRESENCESTATE_BREWING                          2283
 #define IDS_RICHPRESENCESTATE_ANVIL                            2284
 #define IDS_RICHPRESENCESTATE_TRADING                          2285
+#define IDS_GAMEMODE_HARDCORE                                  2286
+#define IDS_HARDCORE                                           2287
+#define IDS_HARDCORE_TOOLTIP                                   2288
+#define IDS_HARDCORE_WARNING_TITLE                             2289
+#define IDS_HARDCORE_WARNING_TEXT                              2290
+#define IDS_HARDCORE_DEATH_MESSAGE                             2291
+#define IDS_LABEL_HARDCORE                                     2292
+#define IDS_GAMEOPTION_HARDCORE                                2293

@@ -8063,6 +8063,16 @@ void CMinecraftApp::SetGameHostOption(unsigned int &uiHostSettings, eGameHostOpt
 		uiHostSettings&=~GAME_HOST_OPTION_BITMASK_WORLDSIZE;
 		uiHostSettings|=(GAME_HOST_OPTION_BITMASK_WORLDSIZE & (uiVal<<GAME_HOST_OPTION_BITMASK_WORLDSIZE_BITSHIFT));
 		break;
+	case eGameHostOption_Hardcore: // 4J Added - for hardcore mode
+		if(uiVal!=0)
+		{
+			uiHostSettings |= GAME_HOST_OPTION_BITMASK_HARDCORE;
+		}
+		else
+		{
+			uiHostSettings &= ~GAME_HOST_OPTION_BITMASK_HARDCORE;
+		}
+		break;
 	case eGameHostOption_All:
 		uiHostSettings=uiVal;
 		break;
@@ -8163,6 +8173,9 @@ unsigned int CMinecraftApp::GetGameHostOption(unsigned int uiHostSettings, eGame
 		return !(uiHostSettings&GAME_HOST_OPTION_BITMASK_NATURALREGEN);
 	case eGameHostOption_DoDaylightCycle:
 		return !(uiHostSettings&GAME_HOST_OPTION_BITMASK_DODAYLIGHTCYCLE);
+		break;
+	case eGameHostOption_Hardcore: // 4J Added - for hardcore mode
+		return (uiHostSettings&GAME_HOST_OPTION_BITMASK_HARDCORE) ? 1 : 0;
 		break;
 	}
 

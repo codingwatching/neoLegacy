@@ -564,6 +564,12 @@ void ServerPlayer::die(DamageSource *source)
 {
 	server->getPlayers()->broadcastAll(getCombatTracker()->getDeathMessagePacket());
 
+	// 4J Added: Hardcore mode — switch to Adventure mode on death (can look but not break/place blocks)
+	if (level->getLevelData()->isHardcore())
+	{
+		setGameMode(GameType::ADVENTURE);
+	}
+
 	if (!level->getGameRules()->getBoolean(GameRules::RULE_KEEPINVENTORY))
 	{
 		inventory->dropAll();
@@ -1604,9 +1610,9 @@ bool ServerPlayer::hasPermission(EGameCommand command)
 //
 //	// 4J - Don't need
 //	//if (server.isSingleplayer() && server.getSingleplayerName().equals(name))
-//	//{
+///	//{
 //	//	server.setDifficulty(packet.getDifficulty());
-//	//}
+///	//}
 //}
 
 int ServerPlayer::getViewDistance()

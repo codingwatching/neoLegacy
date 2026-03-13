@@ -1,6 +1,7 @@
 #include "ConsoleInputSource.h"
 #include "..\Minecraft.World\PacketListener.h"
 #include "..\Minecraft.World\JavaIntHash.h"
+#include <atomic>
 
 class MinecraftServer;
 class Connection;
@@ -125,8 +126,8 @@ public:
 
 	void setShowOnMaps(bool bVal);
 
-	void setWasKicked() { m_bWasKicked = true; }
-	bool getWasKicked() { return m_bWasKicked; }
+	void setWasKicked() { m_bWasKicked.store(true); }
+	bool getWasKicked() { return m_bWasKicked.load(); }
 
 	// 4J Added
 	bool hasClientTickedOnce() { return m_bHasClientTickedOnce; }
@@ -135,5 +136,5 @@ private:
 	bool m_bCloseOnTick;
 	vector<wstring> m_texturesRequested;
 
-	bool m_bWasKicked;
+	std::atomic<bool> m_bWasKicked{false};
 };

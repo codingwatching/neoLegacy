@@ -29,7 +29,7 @@
 #include "..\..\..\Minecraft.World\NbtIo.h"
 #include "..\..\..\Minecraft.World\compression.h"
 
-static wstring ReadLevelNameFromSaveFile(const wstring& filePath)
+static wstring ReadLevelNameFromSaveFile(const wstring& filePath, bool *outHardcore = nullptr)
 {
     // Check for a worldname.txt sidecar written by the rename feature first
     size_t slashPos = filePath.rfind(L'\\');
@@ -124,7 +124,11 @@ static wstring ReadLevelNameFromSaveFile(const wstring& filePath)
                         {
                             CompoundTag *dataTag = root->getCompound(L"Data");
                             if (dataTag != nullptr)
+                            {
                                 result = dataTag->getString(L"LevelName");
+                                if (outHardcore)
+                                    *outHardcore = dataTag->getBoolean(L"hardcore");
+                            }
                             delete root;
                         }
                     }
@@ -775,7 +779,9 @@ void UIScene_LoadOrJoinMenu::tick()
                         ZeroMemory(wFilename, sizeof(wFilename));
                         mbstowcs(wFilename, m_pSaveDetails->SaveInfoA[origIdx].UTF8SaveFilename, MAX_SAVEFILENAME_LENGTH - 1);
                         wstring filePath = wstring(L"Windows64\\GameHDD\\") + wstring(wFilename) + wstring(L"\\saveData.ms");
-                        wstring levelName = ReadLevelNameFromSaveFile(filePath);
+                        bool saveHardcore = false;
+                        wstring levelName = ReadLevelNameFromSaveFile(filePath, &saveHardcore);
+                        m_saveDetails[i].isHardcore = saveHardcore;
                         if (!levelName.empty())
                         {
                             m_buttonListSaves.addItem(levelName, wstring(L""));

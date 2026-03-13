@@ -34,6 +34,7 @@ LoginPacket::LoginPacket()
 	m_uiGamePrivileges = 0;
 	m_xzSize = LEVEL_MAX_WIDTH;
 	m_hellScale = HELL_LEVEL_MAX_SCALE;
+	m_isHardcore = false;
 }
 
 // Client -> Server
@@ -63,10 +64,11 @@ LoginPacket::LoginPacket(const wstring& userName, int clientVersion, PlayerUID o
 	m_uiGamePrivileges = 0;
 	m_xzSize = LEVEL_MAX_WIDTH;
 	m_hellScale = HELL_LEVEL_MAX_SCALE;
+	m_isHardcore = false;
 }
 
 // Server -> Client
-LoginPacket::LoginPacket(const wstring& userName, int clientVersion, LevelType *pLevelType, int64_t seed, int gameType, char dimension, BYTE mapHeight, BYTE maxPlayers, char difficulty, INT multiplayerInstanceId, BYTE playerIndex, bool newSeaLevel, unsigned int uiGamePrivileges, int xzSize, int hellScale)
+LoginPacket::LoginPacket(const wstring& userName, int clientVersion, LevelType *pLevelType, int64_t seed, int gameType, char dimension, BYTE mapHeight, BYTE maxPlayers, char difficulty, INT multiplayerInstanceId, BYTE playerIndex, bool newSeaLevel, unsigned int uiGamePrivileges, int xzSize, int hellScale, bool isHardcore)
 {
 	this->userName = userName;
 	this->clientVersion = clientVersion;
@@ -92,6 +94,7 @@ LoginPacket::LoginPacket(const wstring& userName, int clientVersion, LevelType *
 	m_uiGamePrivileges = uiGamePrivileges;
 	m_xzSize = xzSize;
 	m_hellScale = hellScale;
+	m_isHardcore = isHardcore;
 }
 
 void LoginPacket::read(DataInputStream *dis) //throws IOException
@@ -127,6 +130,7 @@ void LoginPacket::read(DataInputStream *dis) //throws IOException
 	m_xzSize = dis->readShort();
 	m_hellScale = dis->read();
 #endif
+	m_isHardcore = dis->readBoolean();
 	app.DebugPrintf("LoginPacket::read - Difficulty = %d\n",difficulty);
 
 }
@@ -164,6 +168,7 @@ void LoginPacket::write(DataOutputStream *dos) //throws IOException
 	dos->writeShort(m_xzSize);
 	dos->write(m_hellScale);
 #endif
+	dos->writeBoolean(m_isHardcore);
 }
 
 void LoginPacket::handle(PacketListener *listener)
@@ -179,5 +184,5 @@ int LoginPacket::getEstimatedSize()
 		length = static_cast<int>(m_pLevelType->getGeneratorName().length());
 	}
 
-	return static_cast<int>(sizeof(int) + userName.length() + 4 + 6 + sizeof(int64_t) + sizeof(char) + sizeof(int) + (2 * sizeof(PlayerUID)) + 1 + sizeof(char) + sizeof(BYTE) + sizeof(bool) + sizeof(bool) + length + sizeof(unsigned int));
+	return static_cast<int>(sizeof(int) + userName.length() + 4 + 6 + sizeof(int64_t) + sizeof(char) + sizeof(int) + (2 * sizeof(PlayerUID)) + 1 + sizeof(char) + sizeof(BYTE) + sizeof(bool) + sizeof(bool) + length + sizeof(unsigned int) + sizeof(bool));
 }

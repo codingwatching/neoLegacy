@@ -24,12 +24,13 @@
 #define CHECKFORAVAILABLETEXTUREPACKS_TIMER_TIME 50
 #endif
 
-int UIScene_LoadMenu::m_iDifficultyTitleSettingA[4]=
+int UIScene_LoadMenu::m_iDifficultyTitleSettingA[5]=
 {
 	IDS_DIFFICULTY_TITLE_PEACEFUL,
 	IDS_DIFFICULTY_TITLE_EASY,
 	IDS_DIFFICULTY_TITLE_NORMAL,
-	IDS_DIFFICULTY_TITLE_HARD
+	IDS_DIFFICULTY_TITLE_HARD,
+	IDS_GAMEMODE_HARDCORE
 };
 
 int UIScene_LoadMenu::LoadSaveDataThumbnailReturned(LPVOID lpParam,PBYTE pbThumbnail,DWORD dwThumbnailBytes)
@@ -110,6 +111,7 @@ UIScene_LoadMenu::UIScene_LoadMenu(int iPad, void *initData, UILayer *parentLaye
 	m_bThumbnailGetFailed = false;
 	m_seed = 0;
 	m_bIsCorrupt = false;
+	m_bHardcore = false;
 
 	m_bMultiplayerAllowed = ProfileManager.IsSignedInLive( m_iPad ) && ProfileManager.AllowedToPlayMultiplayer(m_iPad);
 	// 4J-PB - read the settings for the online flag. We'll only save this setting if the user changed it.
@@ -256,6 +258,30 @@ UIScene_LoadMenu::UIScene_LoadMenu(int iPad, void *initData, UILayer *parentLaye
 			mbstowcs(wSaveName, params->saveDetails->UTF8SaveName, 127);
 			m_levelName = wstring(wSaveName);
 			m_labelGameName.init(m_levelName);
+		}
+		if (params->saveDetails != nullptr)
+		{
+			// Set thumbnail name from save filename (needed for texture display in tick)
+			wchar_t wFilename[MAX_SAVEFILENAME_LENGTH];
+			ZeroMemory(wFilename, sizeof(wFilename));
+			mbstowcs(wFilename, params->saveDetails->UTF8SaveFilename, MAX_SAVEFILENAME_LENGTH - 1);
+			m_thumbnailName = wFilename;
+
+			if (params->saveDetails->pbThumbnailData && params->saveDetails->dwThumbnailSize > 0)
+			{
+				m_pbThumbnailData = params->saveDetails->pbThumbnailData;
+				m_uiThumbnailSize = params->saveDetails->dwThumbnailSize;
+				m_bSaveThumbnailReady = true;
+				m_bRetrievingSaveThumbnail = false;
+			}
+
+			m_bHardcore = params->saveDetails->isHardcore;
+			if (m_bHardcore)
+			{
+				WCHAR TempString[256];
+				swprintf((WCHAR *)TempString, 256, L"%ls: %ls", app.GetString(IDS_SLIDER_DIFFICULTY), L"Hardcore");
+				m_sliderDifficulty.init(TempString, eControl_Difficulty, 0, 4, 4);
+			}
 		}
 #endif
 	}
@@ -545,6 +571,14 @@ void UIScene_LoadMenu::tick()
 			if(app.GetGameHostOption(uiHostOptions,eGameHostOption_FriendsOfFriends) && !(m_bMultiplayerAllowed && bGameSetting_Online))
 			{
 				m_MoreOptionsParams.bAllowFriendsOfFriends = TRUE;
+			}
+
+			m_bHardcore = app.GetGameHostOption(uiHostOptions, eGameHostOption_Hardcore) > 0;
+			if (m_bHardcore)
+			{
+				WCHAR TempString[256];
+				swprintf( (WCHAR *)TempString, 256, L"%ls: %ls", app.GetString( IDS_SLIDER_DIFFICULTY ), L"Hardcore");
+				m_sliderDifficulty.init(TempString, eControl_Difficulty, 0, 4, 4);
 			}
 		}
 
@@ -950,10 +984,15 @@ void UIScene_LoadMenu::handleSliderMove(F64 sliderId, F64 currentValue)
 	switch(static_cast<int>(sliderId))
 	{
 	case eControl_Difficulty:
+		if (m_bHardcore)
+		{
+			m_sliderDifficulty.handleSliderMove(4);
+			break;
+		}
 		m_sliderDifficulty.handleSliderMove(value);
 
 		app.SetGameSettings(m_iPad,eGameSetting_Difficulty,value);
-		swprintf( (WCHAR *)TempString, 256, L"%ls: %ls", app.GetString( IDS_SLIDER_DIFFICULTY ),app.GetString(m_iDifficultyTitleSettingA[value]));		
+		swprintf( (WCHAR *)TempString, 256, L"%ls: %ls", app.GetString( IDS_SLIDER_DIFFICULTY ),app.GetString(m_iDifficultyTitleSettingA[value]));
 		m_sliderDifficulty.setLabel(TempString);
 		break;
 	}
@@ -1167,7 +1206,7 @@ void UIScene_LoadMenu::LaunchGame(void)
 #if TO_BE_IMPLEMENTED
 			if(eLoadStatus==C4JStorage::ELoadGame_DeviceRemoved)
 			{
-				// disable saving 
+				// disable saving
 				StorageManager.SetSaveDisabled(true);
 				StorageManager.SetSaveDeviceSelected(m_iPad,false);
 				UINT uiIDA[1];
@@ -1580,6 +1619,24 @@ void UIScene_LoadMenu::StartGameFromSave(UIScene_LoadMenu* pClass, DWORD dwLocal
 
 	PSAVE_DETAILS pSaveDetails=StorageManager.ReturnSavesInfo();
 
+#ifdef _WINDOWS64
+	// 4J Added: Store save folder name for potential hardcore world deletion
+	app.DebugPrintf("StartGameFromSave: pSaveDetails=%p, levelGen=%p, saveInfoIndex=%d\n", pSaveDetails, pClass->m_levelGen, pClass->m_iSaveGameInfoIndex);
+	if (pSaveDetails != nullptr && pClass->m_levelGen == nullptr)
+	{
+		app.DebugPrintf("StartGameFromSave: UTF8SaveFilename='%s'\n", pSaveDetails->SaveInfoA[(int)pClass->m_iSaveGameInfoIndex].UTF8SaveFilename);
+		wchar_t wFolder[MAX_SAVEFILENAME_LENGTH] = {};
+		mbstowcs(wFolder, pSaveDetails->SaveInfoA[(int)pClass->m_iSaveGameInfoIndex].UTF8SaveFilename, MAX_SAVEFILENAME_LENGTH - 1);
+		app.SetCurrentSaveFolderName(wFolder);
+		app.DebugPrintf("StartGameFromSave: stored folder name '%ls'\n", wFolder);
+	}
+	else
+	{
+		app.DebugPrintf("StartGameFromSave: no save details or is levelGen, clearing folder name\n");
+		app.SetCurrentSaveFolderName(L"");
+	}
+#endif
+
 	NetworkGameInitData *param = new NetworkGameInitData();
 	param->seed = pClass->m_seed;
 	param->saveData = nullptr;	
@@ -1612,6 +1669,7 @@ void UIScene_LoadMenu::StartGameFromSave(UIScene_LoadMenu* pClass, DWORD dwLocal
 	app.SetGameHostOption(eGameHostOption_DoTileDrops, pClass->m_MoreOptionsParams.bDoTileDrops);
 	app.SetGameHostOption(eGameHostOption_NaturalRegeneration, pClass->m_MoreOptionsParams.bNaturalRegeneration);
 	app.SetGameHostOption(eGameHostOption_DoDaylightCycle, pClass->m_MoreOptionsParams.bDoDaylightCycle);
+	app.SetGameHostOption(eGameHostOption_Hardcore, pClass->m_bHardcore ? 1 : 0);
 
 #ifdef _LARGE_WORLDS
 	app.SetGameHostOption(eGameHostOption_WorldSize, pClass->m_MoreOptionsParams.worldSize+1 );  // 0 is GAME_HOST_OPTION_WORLDSIZE_UNKNOWN

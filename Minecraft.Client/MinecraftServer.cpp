@@ -561,6 +561,7 @@ MinecraftServer::MinecraftServer()
 	m_serverPausedEvent = new C4JThread::Event;
 
 	m_saveOnExit = false;
+	m_deleteWorldOnExit = false;
 	m_suspending = false;
 
 	m_ugcPlayersVersion = 0;
@@ -880,6 +881,15 @@ bool MinecraftServer::loadLevel(LevelStorageSource *storageSource, const wstring
 	//		assert(false);
 	//    }
 	ProgressRenderer *mcprogress = Minecraft::GetInstance()->progressRenderer;
+
+	// 4J Added - store save folder name for potential hardcore world deletion
+	{
+		char szSaveFolder[MAX_SAVEFILENAME_LENGTH] = {};
+		StorageManager.GetSaveUniqueFilename(szSaveFolder);
+		wchar_t wSaveFolder[MAX_SAVEFILENAME_LENGTH] = {};
+		mbstowcs(wSaveFolder, szSaveFolder, MAX_SAVEFILENAME_LENGTH - 1);
+		m_saveFolderName = wSaveFolder;
+	}
 
 	// 4J TODO - free levels here if there are already some?
 	levels = ServerLevelArray(3);
@@ -1636,7 +1646,7 @@ bool MinecraftServer::isNetherEnabled()
 
 bool MinecraftServer::isHardcore()
 {
-	return false;
+	return app.GetGameHostOption(eGameHostOption_Hardcore) > 0;
 }
 
 int MinecraftServer::getOperatorUserPermissionLevel()
