@@ -568,6 +568,11 @@ void ServerPlayer::die(DamageSource *source)
 	if (level->getLevelData()->isHardcore())
 	{
 		setGameMode(GameType::ADVENTURE);
+
+		// Ban this player's XUID and force-save so the host
+		// cannot circumvent the death by quitting without saving.
+		server->getPlayers()->banXuid(getOnlineXuid());
+		app.SetXuiServerAction(ProfileManager.GetPrimaryPad(), eXuiServerAction_SaveGame);
 	}
 
 	if (!level->getGameRules()->getBoolean(GameRules::RULE_KEEPINVENTORY))
