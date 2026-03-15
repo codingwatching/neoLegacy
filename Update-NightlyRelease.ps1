@@ -59,10 +59,19 @@ if (Test-Path $ZipPath) {
     Remove-Item $ZipPath -Force
 }
 
-# Gather all files/folders, excluding .pch files and any existing zip
-$itemsToZip = Get-ChildItem -Path $ReleaseDir -Exclude "*.pch", "*.zip"
+# Use .NET ZipFile for reliable cross-platform zip structure
+Add-Type -AssemblyName System.IO.Compression.FileSystem
 
-Compress-Archive -Path $itemsToZip.FullName -DestinationPath $ZipPath -CompressionLevel Optimal
+$tempZip = "$ZipPath.tmp"
+[System.IO.Compression.ZipFile]::CreateFromDirectory($ReleaseDir, $tempZip, [System.IO.Compression.CompressionLevel]::Optimal, $false)
+
+# Rewrite the zip without .pch files
+$zipIn  = [System.IO.Compression.ZipFile]::Open($tempZip, 'Update')
+$toRemove = $zipIn.Entries | Where-Object { $_.FullName -like "*.pch" -or $_.FullName -like "*.zip" }
+foreach ($entry in $toRemove) { $entry.Delete() }
+$zipIn.Dispose()
+
+Move-Item -Path $tempZip -Destination $ZipPath -Force
 Write-Host "    Created: $ZipPath" -ForegroundColor Green
 
 # --- Step 3: Get the Nightly release info ---
