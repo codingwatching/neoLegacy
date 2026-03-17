@@ -14,10 +14,16 @@ This project is based on source code of Minecraft Legacy Console Edition v1.6.05
 
 ## Latest:
 
+Migrated to CMake build system (upstream)!
+- Project now builds with CMake instead of Visual Studio project files
+- Use `cmake --preset windows64` or open the repo folder directly in Visual Studio (it detects `CMakeLists.txt` automatically)
+- Old `.vcxproj`/`.sln` files are preserved on the `vs-build` branch if needed
+
 Multi-language font rendering and Unicode text input!
 - Type and read text/characters in Japanese, Chinese, Korean, Thai, Arabic, Hindi, and many more languages
 - Works in: chat, signs, world names, seeds, server address/port fields
 - Two rendering systems: Iggy UI uses a new unicode bitmap fallback font; legacy C++ renderer uses Java Minecraft's glyph page system
+- Arabic text shaping: proper contextual letter forms and right-to-left visual reordering in chat and UI
 - Security: blocked Unicode bidirectional override characters to prevent chat spoofing
 - Fixed a pre-existing memory leak in sign loading
 
