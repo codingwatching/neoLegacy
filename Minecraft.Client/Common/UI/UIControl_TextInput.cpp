@@ -216,13 +216,23 @@ UIControl_TextInput::EDirectEditResult UIControl_TextInput::tickDirectEdit()
 	if (g_KBMInput.IsKeyPressed('V') && g_KBMInput.IsKeyDown(VK_CONTROL))
 	{
 		wstring pasted = Screen::getClipboard();
-		for (size_t i = 0; i < pasted.length(); i++)
+		wstring sanitized;
+		sanitized.reserve(pasted.length());
+
+		for (wchar_t pc : pasted)
 		{
-			wchar_t pc = pasted[i];
-			if (pc < 0x20) continue; // skip control characters
-			if (m_iCharLimit > 0 && (int)m_editBuffer.length() >= m_iCharLimit) break;
-			m_editBuffer.insert(m_iCursorPos, 1, pc);
-			m_iCursorPos++;
+			if (pc >= 0x20) // Keep printable characters
+			{
+				if (m_iCharLimit > 0 && (m_editBuffer.length() + sanitized.length()) >= (size_t)m_iCharLimit)
+					break;
+				sanitized += pc;
+			}
+		}
+
+		if (!sanitized.empty())
+		{
+			m_editBuffer.insert(m_iCursorPos, sanitized);
+			m_iCursorPos += (int)sanitized.length();
 			changed = true;
 		}
 	}

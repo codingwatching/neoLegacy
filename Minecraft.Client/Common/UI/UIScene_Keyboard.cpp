@@ -229,19 +229,29 @@ void UIScene_Keyboard::tick()
 	if (g_KBMInput.IsKeyPressed('V') && g_KBMInput.IsKeyDown(VK_CONTROL))
 	{
 		wstring pasted = Screen::getClipboard();
-		for (size_t i = 0; i < pasted.length(); i++)
+		wstring sanitized;
+		sanitized.reserve(pasted.length());
+
+		for (wchar_t pc : pasted)
 		{
-			wchar_t pc = pasted[i];
-			if (pc < 0x20) continue; // skip control characters
-			if (static_cast<int>(m_win64TextBuffer.length()) >= m_win64MaxChars) break;
+			if (pc >= 0x20) // Keep printable characters
+			{
+				if (static_cast<int>(m_win64TextBuffer.length() + sanitized.length()) >= m_win64MaxChars)
+					break;
+				sanitized += pc;
+			}
+		}
+
+		if (!sanitized.empty())
+		{
 			if (m_bPCMode)
 			{
-				m_win64TextBuffer.insert(m_iCursorPos, 1, pc);
-				m_iCursorPos++;
+				m_win64TextBuffer.insert(m_iCursorPos, sanitized);
+				m_iCursorPos += (int)sanitized.length();
 			}
 			else
 			{
-				m_win64TextBuffer += pc;
+				m_win64TextBuffer += sanitized;
 			}
 			changed = true;
 		}
