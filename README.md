@@ -15,10 +15,10 @@ This project is based on source code of Minecraft Legacy Console Edition v1.6.05
 ## Latest:
 
 Dedicated server biome diversity fix:
-- The dedicated server previously used a completely random seed with no biome diversity checks — unlike the client which validates seeds to guarantee varied biomes. This could result in server worlds with large regions dominated by only one or two biome types (e.g. all taiga/snowy)
-- On top of that, the client's seed validation was hardcoded to only check a 54-chunk (Classic) area, so even validated seeds had no diversity guarantee beyond that — making the problem especially noticeable on Large worlds or worlds expanded from Classic to Large
+- The dedicated server previously used a completely random seed with no biome diversity checks, unlike the client which validates seeds to guarantee varied biomes. This could result in server worlds with large regions dominated by only one or two biome types (e.g. all taiga/snowy)
+- On top of that, the client's seed validation was hardcoded to only check a 54-chunk (Classic) area, so even validated seeds had no diversity guarantee beyond that. This made the problem especially noticeable on Large worlds or worlds expanded from Classic to Large
 - New server worlds now validate seeds for biome diversity, and the validation scales to the full target world size
-- Added `override-seed` in server.properties to fix existing worlds without deleting them — set it to any seed number and newly generated chunks will use it instead of the original
+- Added `override-seed` in server.properties to fix existing worlds without deleting them. Set it to any seed number and newly generated chunks will use it instead of the original
 
 Server list and connection improvements:
 - Server edits and deletions now apply immediately without needing to restart the game
