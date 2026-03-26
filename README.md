@@ -1,5 +1,5 @@
 ![Legacy Edition Banner](.github/banner.png)
-# MinecraftConsoles (Legacy Console Edition)
+# MinecraftConsoles (Legacy Console Revelations Edition)
 
 If you have any questions regarding this fork, this is my Fluxer server (similar to a Discord server):
 <p align="center">
@@ -74,15 +74,15 @@ Added copy+paste support for IP/Port, world names, world seeds, server names, si
 
 Dedicated server releases support Hardcore Mode!
 - Dedicated server is fully compatible with `smartcmd/MinecraftConsoles` clients, even with hardcore mode!
-- Client (`LCEWindows64.zip`): download from the Nightly release on GitHub
-- Dedicated Server (`LCEServerWindows64.zip`): download from the Nightly-Dedicated-Server release on GitHub
+- Client (`LCREWindows64.zip`): download from the Nightly release on GitHub
+- Dedicated Server (`LCREServerWindows64.zip`): download from the Nightly-Dedicated-Server release on GitHub
 - Docker: pull `ghcr.io/itsrevela/minecraft-lce-dedicated-server:nightly` for server container
 
 In-game screenshot functionality with F2!
 - pressing F2 will save a screenshot to a `screenshots` folder in your root game directory
 - a local-only chat message is shown to the player notifying the screenshot filename that was saved
 
-Proper implementation of Hardcore Mode in LCE!
+Proper implementation of Hardcore Mode in LCRE!
 - difficulty slider included in create world menu
 - difficulty slider forces "Difficulty: Hardcore" on world load
 - singleplayer: host death, force no respawn, on exit deletes world
