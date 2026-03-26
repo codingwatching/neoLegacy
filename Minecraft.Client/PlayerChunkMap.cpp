@@ -824,11 +824,6 @@ void PlayerChunkMap::setRadius(int newRadius)
 			}
 		}
 
-		if (newRadius < radius)
-		{
-			level->cache->dropAll();
-		}
-
 		assert(radius <= MAX_VIEW_DISTANCE);
 		assert(radius >= MIN_VIEW_DISTANCE);
 		this->radius = newRadius;

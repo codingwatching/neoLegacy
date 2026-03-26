@@ -150,15 +150,14 @@ void MultiPlayerChunkCache::drop(const int x, const int z)
 
 	if (chunk != nullptr && !chunk->isEmpty())
 	{
-		// Unload chunk but keep tile entities
+		// Drop entities in the chunks, especially for the case when a player is dead
+		// as they will not get the RemoveEntity packet if an entity is removed.
+		// Don't delete tile entities, as they won't get recreated unless they've got
+		// update packets. Tile entities are created on the client by the chunk rebuild.
 		chunk->unload(false);
 
-		const auto it = std::find(loadedChunkList.begin(), loadedChunkList.end(), chunk);
-		if (it != loadedChunkList.end()) loadedChunkList.erase(it);
-
-		cache[idx] = nullptr;
-		hasData[idx] = false;
-		chunk->loaded = false;
+		// Keep chunk in cache with structural data intact.
+		chunk->loaded = true;
 	}
 }
 

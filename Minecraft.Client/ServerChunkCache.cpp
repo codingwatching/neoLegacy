@@ -91,11 +91,7 @@ void ServerChunkCache::drop(const int x, const int z)
 
 	if (chunk != nullptr)
 	{
-		const auto it = std::find(m_loadedChunkList.begin(), m_loadedChunkList.end(), chunk);
-		if (it != m_loadedChunkList.end()) m_loadedChunkList.erase(it);
-
-		cache[idx] = nullptr;
-		chunk->loaded = false;
+		m_toDrop.push_back(chunk);
 	}
 }
 
