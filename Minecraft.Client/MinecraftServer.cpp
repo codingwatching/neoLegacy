@@ -2258,11 +2258,6 @@ void MinecraftServer::tick()
 	PIXBeginNamedEvent(0,"Players tick");
 	players->tick();
 	PIXEndNamedEvent();
-#if defined(_WINDOWS64)
-	// Commit any pending async autosave on the game thread (same thread
-	// that called Flush/AllocateSaveData, which StorageManager requires).
-	ConsoleSaveFileOriginal::CommitPendingAsyncSave();
-#endif
 	PIXBeginNamedEvent(0,"Connection tick");
 	connection->tick();
 	PIXEndNamedEvent();
