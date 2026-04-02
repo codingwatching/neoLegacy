@@ -26,8 +26,8 @@ services:
       # - wineprefix64:/var/opt/wineprefix64
       - ./server-data:/srv/persist
     ports:
-      - "25565:25565/tcp"
-      - "25565:25565/udp"
+      - "$SERVER_PORT:$SERVER_PORT/tcp"
+      - "$SERVER_PORT:$SERVER_PORT/udp"
     stop_grace_period: 30s
 
 # volumes:
