@@ -12,26 +12,6 @@
 #include "..\Minecraft.Client\Common\GameRules\LevelGenerationOptions.h"
 #include "..\Minecraft.World\net.minecraft.world.level.chunk.storage.h"
 
-#ifdef _WINDOWS64
-#include <thread>
-#include <atomic>
-#include <mutex>
-extern bool g_Win64DedicatedServer;
-static std::atomic<bool> s_asyncSaveInFlight{false};
-
-// Pending async save: background thread fills this, main thread commits it.
-struct PendingAsyncSave
-{
-	ConsoleSaveFile *self;
-	PBYTE thumbData;
-	DWORD thumbSize;
-	BYTE textMetadata[88];
-	int textMetadataBytes;
-	bool ready;
-};
-static std::mutex s_pendingSaveMutex;
-static PendingAsyncSave s_pendingSave = {};
-#endif
 
 
 #ifdef _XBOX
@@ -694,130 +674,6 @@ void ConsoleSaveFileOriginal::Flush(bool autosave, bool updateThumbnail )
 
 	unsigned int fileSize = header.GetFileSize();
 
-#ifdef _WINDOWS64
-	// --- Dedicated server async flush path ---
-	// Snapshot pvSaveMem while holding the lock (fast memcpy), then release
-	// the lock immediately so the main thread can continue ticking. Compression
-	// and disk write happen on a detached background thread.
-	if (g_Win64DedicatedServer)
-	{
-		// If a previous async save is still compressing, fall through to the
-		// synchronous path to avoid queuing unbounded background work.
-		if (s_asyncSaveInFlight.load(std::memory_order_acquire))
-		{
-			app.DebugPrintf("Async save: previous still in flight, falling back to sync\n");
-			goto sync_flush;
-		}
-
-		// Snapshot: copy the entire save buffer so we can release the lock
-		QueryPerformanceCounter(&qwTime);
-		byte *snapshot = new (std::nothrow) byte[fileSize];
-		if (snapshot == nullptr)
-		{
-			app.DebugPrintf("Async save: failed to allocate %u byte snapshot, falling back to sync\n", fileSize);
-			goto sync_flush;
-		}
-		memcpy(snapshot, pvSaveMem, fileSize);
-		QueryPerformanceCounter(&qwNewTime);
-		qwDeltaTime.QuadPart = qwNewTime.QuadPart - qwTime.QuadPart;
-		fElapsedTime = fSecsPerTick * static_cast<FLOAT>(qwDeltaTime.QuadPart);
-		app.DebugPrintf("Async save: snapshot %u bytes in %.3f sec\n", fileSize, fElapsedTime);
-
-		// Gather metadata while still on the main thread
-		PBYTE pbThumbnailData = nullptr;
-		DWORD dwThumbnailDataSize = 0;
-		app.GetSaveThumbnail(&pbThumbnailData, &dwThumbnailDataSize);
-
-		BYTE bTextMetadata[88];
-		ZeroMemory(bTextMetadata, 88);
-		int64_t seed = 0;
-		bool hasSeed = false;
-		if (MinecraftServer::getInstance() != nullptr && MinecraftServer::getInstance()->levels[0] != nullptr)
-		{
-			seed = MinecraftServer::getInstance()->levels[0]->getLevelData()->getSeed();
-			hasSeed = true;
-		}
-		int iTextMetadataBytes = app.CreateImageTextData(bTextMetadata, seed, hasSeed,
-			app.GetGameHostOption(eGameHostOption_All), Minecraft::GetInstance()->getCurrentTexturePackId());
-
-		INT saveOrCheckpointId = 0;
-		StorageManager.GetSaveUniqueNumber(&saveOrCheckpointId);
-		TelemetryManager->RecordLevelSaveOrCheckpoint(ProfileManager.GetPrimaryPad(), saveOrCheckpointId, fileSize);
-
-		// Allocate compression buffer while still on the game thread and
-		// holding the lock (StorageManager is not thread-safe).
-		byte *compData = static_cast<byte *>(StorageManager.AllocateSaveData(fileSize + 8));
-		if (compData == nullptr)
-		{
-			app.DebugPrintf("Async save: failed to allocate compression buffer, falling back to sync\n");
-			delete[] snapshot;
-			goto sync_flush;
-		}
-
-		// Release the lock -- main thread and chunk trickle saves can resume
-		ReleaseSaveAccess();
-
-		// Pack context for the background thread
-		struct AsyncSaveContext
-		{
-			byte *snapshot;
-			byte *compData;
-			unsigned int fileSize;
-			ConsoleSaveFile *self;
-			PBYTE thumbData;
-			DWORD thumbSize;
-			BYTE textMetadata[88];
-			int textMetadataBytes;
-		};
-
-		auto *ctx = new AsyncSaveContext();
-		ctx->snapshot = snapshot;
-		ctx->compData = compData;
-		ctx->fileSize = fileSize;
-		ctx->self = this;
-		ctx->thumbData = pbThumbnailData;
-		ctx->thumbSize = dwThumbnailDataSize;
-		memcpy(ctx->textMetadata, bTextMetadata, 88);
-		ctx->textMetadataBytes = iTextMetadataBytes;
-
-		s_asyncSaveInFlight.store(true, std::memory_order_release);
-
-		std::thread([ctx]()
-		{
-			unsigned int compLength = ctx->fileSize + 8;
-			Compression::getCompression()->Compress(
-				ctx->compData + 8, &compLength, ctx->snapshot, ctx->fileSize);
-
-			ZeroMemory(ctx->compData, 8);
-			int saveVer = 0;
-			memcpy(ctx->compData, &saveVer, sizeof(int));
-			unsigned int fs = ctx->fileSize;
-			memcpy(ctx->compData + 4, &fs, sizeof(int));
-
-			app.DebugPrintf("Async save: compressed %u -> %u bytes\n", ctx->fileSize, compLength);
-
-			// Queue for the main thread to commit via StorageManager
-			{
-				std::lock_guard<std::mutex> lock(s_pendingSaveMutex);
-				s_pendingSave.self = ctx->self;
-				s_pendingSave.thumbData = ctx->thumbData;
-				s_pendingSave.thumbSize = ctx->thumbSize;
-				memcpy(s_pendingSave.textMetadata, ctx->textMetadata, 88);
-				s_pendingSave.textMetadataBytes = ctx->textMetadataBytes;
-				s_pendingSave.ready = true;
-			}
-
-			delete[] ctx->snapshot;
-			delete ctx;
-		}).detach();
-
-		return;
-	}
-sync_flush:
-#endif
-
-	// --- Original synchronous flush path (game client / non-server) ---
-
 	// Assume that the compression will make it smaller so initially attempt to allocate the current file size
 	// We add 4 bytes to the start so that we can signal compressed data
 	// And another 4 bytes to store the decompressed data size
@@ -1276,20 +1132,3 @@ void *ConsoleSaveFileOriginal::getWritePointer(FileEntry *file)
 	return static_cast<char *>(pvSaveMem) + file->currentFilePointer;;
 }
 
-#ifdef _WINDOWS64
-void ConsoleSaveFileOriginal::CommitPendingAsyncSave()
-{
-	std::lock_guard<std::mutex> lock(s_pendingSaveMutex);
-	if (!s_pendingSave.ready)
-		return;
-
-	StorageManager.SetSaveImages(
-		s_pendingSave.thumbData, s_pendingSave.thumbSize,
-		nullptr, 0, s_pendingSave.textMetadata, s_pendingSave.textMetadataBytes);
-	StorageManager.SaveSaveData(
-		&ConsoleSaveFileOriginal::SaveSaveDataCallback, s_pendingSave.self);
-
-	s_pendingSave.ready = false;
-	s_asyncSaveInFlight.store(false, std::memory_order_release);
-}
-#endif

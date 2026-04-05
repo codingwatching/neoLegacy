@@ -977,11 +977,8 @@ void ServerLevel::save(bool force, ProgressListener *progressListener, bool bAut
 
 	if (progressListener != nullptr) progressListener->progressStage(IDS_PROGRESS_SAVING_CHUNKS);
 
-#if defined(_XBOX_ONE) || defined(__ORBIS__) || (defined(_WINDOWS64) && defined(MINECRAFT_SERVER_BUILD))
-	// Autosave is a minimal save. Chunks are saved continuously by the
-	// per-tick trickle save process (ServerChunkCache::tick), so we only
-	// need to flush entity data here. The full chunkSource->save() would
-	// redundantly re-save all dirty chunks and block the main thread.
+#if defined(_XBOX_ONE) || defined(__ORBIS__)
+	// Our autosave is a minimal save. All the chunks are saves by the constant save process
 	if(bAutosave)
 	{
 		chunkSource->saveAllEntities();
