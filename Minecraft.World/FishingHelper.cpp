@@ -94,7 +94,6 @@ CatchWeighedItem* FishingHelper::getRandCatch(CatchType catchType)
 
 std::shared_ptr<ItemInstance> FishingHelper::handleCatch(CatchWeighedItem* weighedCatch, CatchType catchType)
 {	
-
 	std::shared_ptr<ItemInstance> itemInstance = std::make_shared<ItemInstance>(
 		weighedCatch->getItemId(), weighedCatch->getCount(), weighedCatch->getAuxValue()
 	);
@@ -107,7 +106,7 @@ std::shared_ptr<ItemInstance> FishingHelper::handleCatch(CatchWeighedItem* weigh
 		itemInstance = EnchantmentHelper::enchantItem(random, itemInstance, random->nextInt(9) + 22); // 22 to 30 enchantment level
 	}
 	else if (itemInstance->id == Item::bow_Id) {
-		itemInstance->setAuxValue((int) (itemInstance->getMaxDamage() * ((double) random->nextInt(250) + 750.0) / 1000.0)); // 75% to 100% damage
+		itemInstance->setAuxValue((int) (itemInstance->getMaxDamage() * ((double) random->nextInt(251) + 750.0) / 1000.0)); // 75% to 100% damage
 		itemInstance = EnchantmentHelper::enchantItem(random, itemInstance, random->nextInt(9) + 22); // 22 to 30 enchantment level
 	}
 	else if (itemInstance->id == Item::book_Id) {
