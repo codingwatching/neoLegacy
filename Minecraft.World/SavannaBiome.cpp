@@ -39,7 +39,7 @@ int SavannaBiome::getGrassColor() const
     return 0xBFB755; 
 }
 
-int SavannaBiome::getFoliageColor() const
+int SavannaBiome::getFolageColor() const
 {
     return 0xAEA42A; 
 }

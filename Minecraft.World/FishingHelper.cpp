@@ -50,17 +50,16 @@ CatchType FishingHelper::getRandCatchType(int luck, Random* random)
 	CatchTypeWeighedItem* catchTypeWeighedItem = nullptr;
 	catchTypeArray.calcWeights(luck); // Recalculate the weights based on the luck level of the player
 	catchTypeWeighedItem = static_cast<CatchTypeWeighedItem *>(WeighedRandom::getRandomItem(random, catchTypeArray));
-	return catchTypeWeighedItem->getType();
+    return catchTypeWeighedItem->getType();
 }
 
 CatchWeighedItem* FishingHelper::getRandCatch(CatchType catchType, Random* random)
 {
-	CatchWeighedItem* catchWeighedItem = nullptr;
 	switch (catchType) {
 		case CatchType::FISH:
 			return static_cast<CatchWeighedItem *>(WeighedRandom::getRandomItem(random, fishingFishArray));
 		case CatchType::TREASURE:
-			return static_cast<CatchWeighedItem *>(WeighedRandom::getRandomItem(random, fishingTreasuresArray));;
+			return static_cast<CatchWeighedItem *>(WeighedRandom::getRandomItem(random, fishingTreasuresArray));
 		case CatchType::JUNK:
 			return static_cast<CatchWeighedItem *>(WeighedRandom::getRandomItem(random, fishingJunkArray));
 	}
