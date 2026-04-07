@@ -59,8 +59,8 @@ int MutatedBiome::getGrassColor() const {
     return m_baseBiome ? m_baseBiome->getGrassColor() : Biome::getGrassColor();
 }
 
-int MutatedBiome::getFoliageColor() const {
-    return m_baseBiome ? m_baseBiome->getFoliageColor() : Biome::getFoliageColor();
+int MutatedBiome::getFolageColor() const {
+    return m_baseBiome ? m_baseBiome->getFolageColor() : Biome::getFolageColor();
 }
 
 float MutatedBiome::getCreatureProbability() const
