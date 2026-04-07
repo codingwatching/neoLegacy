@@ -147,7 +147,9 @@ Biome::Biome(int id) : id(id)
 {
     color = 0;
     topMaterial = static_cast<byte>(Tile::grass_Id);
+    topMaterialData = 0;
     material = static_cast<byte>(Tile::dirt_Id);
+    materialData = 0;
     leafColor = 0x4EE031;
     _hasRain = true;
     depth = 0.1f;

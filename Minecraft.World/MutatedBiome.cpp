@@ -12,7 +12,9 @@ MutatedBiome::MutatedBiome(int id,  Biome* baseBiome)
 
     color = baseBiome->color;
     topMaterial = baseBiome->topMaterial;
+    topMaterialData = baseBiome->topMaterialData;
     material = baseBiome->material;
+    materialData = baseBiome->materialData;
     leafColor = baseBiome->leafColor;
     depth = baseBiome->depth + 0.1f;
     scale = baseBiome->scale + 0.2f;
