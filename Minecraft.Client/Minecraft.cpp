@@ -77,11 +77,6 @@
 #include "Windows64/stb_image_write.h"
 #endif
 
-#ifdef _WINDOWS64
-#define STB_IMAGE_WRITE_IMPLEMENTATION
-#include "Windows64/stb_image_write.h"
-#endif
-
 #ifdef __ORBIS__
 #include "Orbis/Network/PsPlusUpsellWrapper_Orbis.h"
 #endif
