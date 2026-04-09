@@ -39,7 +39,17 @@
 
 #if defined(_WINDOWS64) && defined(MINECRAFT_SERVER_BUILD)
 #include "../Minecraft.Server/Access/Access.h"
+#include "../Minecraft.Server/Common\StringUtils.h"
+#include "../Minecraft.Server/ServerLogger.h"
+#include "../Minecraft.Server/ServerLogManager.h"
+#include "../Minecraft.Server/ServerProperties.h"
+#include "../Minecraft.Server/Security/SecurityConfig.h"
+#include "../Minecraft.Server/Security/ConnectionCipher.h"
+#include "../Minecraft.Server/Security/CipherHandshakeEnforcer.h"
+#include "../Minecraft.Server/Security/IdentityTokenManager.h"
 extern bool g_Win64DedicatedServer;
+static unsigned int s_playerListTickCount = 0;
+static const int kIdentityResponseGraceTicks = 200; // 10 seconds at 20 TPS
 #endif
 
 // 4J - this class is fairly substantially altered as there didn't seem any point in porting code for banning, whitelisting, ops etc.
@@ -67,6 +77,7 @@ PlayerList::PlayerList(MinecraftServer *server)
 	int rawMax = server->settings->getInt(L"max-players", 8);
 	maxPlayers = static_cast<unsigned int>(Mth::clamp(rawMax, 1, MINECRAFT_NET_MAX_PLAYERS));
 	doWhiteList = false;
+	InitializeCriticalSection(&m_banCS);
 	InitializeCriticalSection(&m_kickPlayersCS);
 	InitializeCriticalSection(&m_closePlayersCS);
 }
@@ -80,6 +91,7 @@ PlayerList::~PlayerList()
 		player->gameMode = nullptr;
 	}
 
+	DeleteCriticalSection(&m_banCS);
 	DeleteCriticalSection(&m_kickPlayersCS);
 	DeleteCriticalSection(&m_closePlayersCS);
 }
@@ -271,11 +283,18 @@ bool PlayerList::placeNewPlayer(Connection *connection, shared_ptr<ServerPlayer>
 	                                                     static_cast<BYTE>(playerIndex), level->useNewSeaLevel(),
 	                                                     player->getAllPlayerGamePrivileges(),
 	                                                     level->getLevelData()->getXZSize(),
-	                                                     level->getLevelData()->getHellScale()));
+	                                                     level->getLevelData()->getHellScale(),
+	                                                     level->getLevelData()->isHardcore()));
 	playerConnection->send(std::make_shared<SetSpawnPositionPacket>(spawnPos->x, spawnPos->y, spawnPos->z));
 	playerConnection->send(std::make_shared<PlayerAbilitiesPacket>(&player->abilities));
 	playerConnection->send(std::make_shared<SetCarriedItemPacket>(player->inventory->selected));
 	delete spawnPos;
+
+	// Identify this server as a fork so the client can enable extended
+	// features (e.g. render-distance-independent player list).  Upstream
+	// clients will silently ignore the unknown channel.
+	playerConnection->send(std::make_shared<CustomPayloadPacket>(
+		CustomPayloadPacket::FORK_HELLO_CHANNEL, byteArray()));
 
 	updateEntireScoreboard(reinterpret_cast<ServerScoreboard *>(level->getScoreboard()), player);
 
@@ -331,6 +350,49 @@ bool PlayerList::placeNewPlayer(Connection *connection, shared_ptr<ServerPlayer>
 			}
 		}
 	}
+
+#if defined(_WINDOWS64) && defined(MINECRAFT_SERVER_BUILD)
+	// Initiate stream cipher handshake if enabled.
+	// Send MC|CKey with the generated key. Old clients will ignore the unknown channel.
+	if (g_Win64DedicatedServer && ServerRuntime::Security::GetSettings().enableStreamCipher)
+	{
+		BYTE smallId = 0;
+		Socket *cipherSock = connection->getSocket();
+		INetworkPlayer *cipherNp = cipherSock ? cipherSock->getPlayer() : nullptr;
+		if (cipherNp != nullptr && !cipherNp->IsLocal())
+		{
+			smallId = cipherNp->GetSmallId();
+			uint8_t key[ServerRuntime::Security::StreamCipher::KEY_SIZE];
+			if (ServerRuntime::Security::GetCipherRegistry().PrepareKey(smallId, key))
+			{
+				byteArray keyData(ServerRuntime::Security::StreamCipher::KEY_SIZE);
+				memcpy(keyData.data, key, ServerRuntime::Security::StreamCipher::KEY_SIZE);
+				playerConnection->send(std::make_shared<CustomPayloadPacket>(
+					CustomPayloadPacket::CIPHER_KEY_CHANNEL, keyData));
+				SecureZeroMemory(key, sizeof(key));
+				app.DebugPrintf("Server: Sent MC|CKey to player %ls (smallId=%d)\n",
+					player->getName().c_str(), smallId);
+
+				// Register with enforcer for timeout tracking
+				if (ServerRuntime::Security::GetSettings().requireSecureClient)
+				{
+					ServerRuntime::Security::GetHandshakeEnforcer().OnCipherKeySent(smallId, s_playerListTickCount);
+				}
+			}
+
+			// Close the security gate AFTER sending the essential login sequence
+			// and MC|CKey. The login setup packets (LoginPacket, spawn position,
+			// abilities, chunks, teleport) must arrive in plaintext before the
+			// cipher handshake completes. Only subsequent tick data is buffered
+			// until the handshake finishes and openSecurityGate() flushes.
+			if (ServerRuntime::Security::GetSettings().requireSecureClient)
+			{
+				playerConnection->m_securityGateOpen = false;
+			}
+		}
+	}
+#endif
+
 	return true;
 }
 
@@ -563,6 +625,16 @@ void PlayerList::move(shared_ptr<ServerPlayer> player)
 
 void PlayerList::remove(shared_ptr<ServerPlayer> player)
 {
+#if defined(_WINDOWS64) && defined(MINECRAFT_SERVER_BUILD)
+	if (g_Win64DedicatedServer && player->connection != nullptr)
+	{
+		INetworkPlayer *np = player->connection->getNetworkPlayer();
+		if (np != nullptr)
+		{
+			ServerRuntime::Security::GetHandshakeEnforcer().OnDisconnected(np->GetSmallId());
+		}
+	}
+#endif
 	save(player);
 	//4J Stu - We don't want to save the map data for guests, so when we are sure that the player is gone delete the map
 	if(player->isGuest()) playerIo->deleteMapFilesForPlayer(player);
@@ -588,7 +660,17 @@ if (player->riding != nullptr)
 	{
 		players.erase(it);
 	}
-	//broadcastAll(shared_ptr<PlayerInfoPacket>( new PlayerInfoPacket(player->name, false, 9999) ) );
+	// Notify fork clients that this player has left the server so they can
+	// clean up IQNet/Tab list entries.  Uses a custom payload channel so the
+	// wire format of existing packets is unchanged (upstream clients simply
+	// ignore the unknown channel).
+	{
+		const wstring& name = player->getName();
+		byteArray payload(static_cast<int>(name.size() * sizeof(wchar_t)));
+		memcpy(payload.data, name.c_str(), payload.length);
+		broadcastAll(std::make_shared<CustomPayloadPacket>(
+			CustomPayloadPacket::FORK_PLAYER_LEAVE_CHANNEL, payload));
+	}
 
 	removePlayerFromReceiving(player);
 	player->connection = nullptr;		// Must remove reference to connection, or else there is a circular dependency
@@ -754,6 +836,13 @@ shared_ptr<ServerPlayer> PlayerList::respawn(shared_ptr<ServerPlayer> serverPlay
 	// necessary)
 	updatePlayerGameMode(player, serverPlayer, level);
 
+	// 4J Added: Hardcore mode — force Adventure mode on respawn
+	if (server->getLevel(0)->getLevelData()->isHardcore())
+	{
+		player->gameMode->setGameModeForPlayer(GameType::ADVENTURE);
+		player->connection->send(std::make_shared<GameEventPacket>(GameEventPacket::CHANGE_GAME_MODE, GameType::ADVENTURE->getId()));
+	}
+
 	if(serverPlayer->wonGame && targetDimension == oldDimension && serverPlayer->getHealth() > 0)
 	{
 		// If the player is still alive and respawning to the same dimension, they are just being added back from someone else viewing the Win screen
@@ -791,7 +880,7 @@ shared_ptr<ServerPlayer> PlayerList::respawn(shared_ptr<ServerPlayer> serverPlay
 
 	player->connection->send( std::make_shared<RespawnPacket>( static_cast<char>(player->dimension), player->level->getSeed(), player->level->getMaxBuildHeight(),
 		player->gameMode->getGameModeForPlayer(), level->difficulty, level->getLevelData()->getGenerator(),
-		player->level->useNewSeaLevel(), player->entityId, level->getLevelData()->getXZSize(), level->getLevelData()->getHellScale() ) );
+		player->level->useNewSeaLevel(), player->entityId, level->getLevelData()->getXZSize(), level->getLevelData()->getHellScale(), level->getLevelData()->isHardcore() ) );
 	player->connection->teleport(player->x, player->y, player->z, player->yRot, player->xRot);
 	player->connection->send( std::make_shared<SetExperiencePacket>( player->experienceProgress, player->totalExperience, player->experienceLevel) );
 
@@ -908,7 +997,7 @@ void PlayerList::toggleDimension(shared_ptr<ServerPlayer> player, int targetDime
 
 	player->connection->send(std::make_shared<RespawnPacket>(static_cast<char>(player->dimension), newLevel->getSeed(), newLevel->getMaxBuildHeight(),
                                                              player->gameMode->getGameModeForPlayer(), newLevel->difficulty, newLevel->getLevelData()->getGenerator(),
-                                                             newLevel->useNewSeaLevel(), player->entityId, newLevel->getLevelData()->getXZSize(), newLevel->getLevelData()->getHellScale()));
+                                                             newLevel->useNewSeaLevel(), player->entityId, newLevel->getLevelData()->getXZSize(), newLevel->getLevelData()->getHellScale(), newLevel->getLevelData()->isHardcore()));
 
 	oldLevel->removeEntityImmediately(player);
 	player->removed = false;
@@ -1003,15 +1092,16 @@ void PlayerList::repositionAcrossDimension(shared_ptr<Entity> entity, int lastDi
 		addPlayerToReceiving(player);
 	}
 
-	if (lastDimension != 1)
+	xt = static_cast<double>(Mth::clamp(static_cast<int>(xt), -Level::MAX_LEVEL_SIZE + 128, Level::MAX_LEVEL_SIZE - 128));
+	zt = static_cast<double>(Mth::clamp(static_cast<int>(zt), -Level::MAX_LEVEL_SIZE + 128, Level::MAX_LEVEL_SIZE - 128));
+	if (entity->isAlive())
 	{
-		xt = static_cast<double>(Mth::clamp(static_cast<int>(xt), -Level::MAX_LEVEL_SIZE + 128, Level::MAX_LEVEL_SIZE - 128));
-		zt = static_cast<double>(Mth::clamp(static_cast<int>(zt), -Level::MAX_LEVEL_SIZE + 128, Level::MAX_LEVEL_SIZE - 128));
-		if (entity->isAlive())
+		newLevel->addEntity(entity);
+		entity->moveTo(xt, entity->y, zt, entity->yRot, entity->xRot);
+		newLevel->tick(entity, false);
+		// Portal forcing only for non-End exits (End exits go to spawn, not a portal)
+		if (lastDimension != 1)
 		{
-			newLevel->addEntity(entity);
-			entity->moveTo(xt, entity->y, zt, entity->yRot, entity->xRot);
-			newLevel->tick(entity, false);
 			newLevel->cache->autoCreate = true;
 			newLevel->getPortalForcer()->force(entity, xOriginal, yOriginal, zOriginal, yRotOriginal);
 			newLevel->cache->autoCreate = false;
@@ -1023,6 +1113,131 @@ void PlayerList::repositionAcrossDimension(shared_ptr<Entity> entity, int lastDi
 
 void PlayerList::tick()
 {
+#if defined(_WINDOWS64) && defined(MINECRAFT_SERVER_BUILD)
+	++s_playerListTickCount;
+
+	// Cipher handshake enforcement: kick clients that haven't completed the handshake
+	if (g_Win64DedicatedServer &&
+		ServerRuntime::Security::GetSettings().enableStreamCipher &&
+		ServerRuntime::Security::GetSettings().requireSecureClient)
+	{
+		std::vector<unsigned char> expired;
+		std::vector<unsigned char> completed;
+		ServerRuntime::Security::GetHandshakeEnforcer().CheckTimeouts(s_playerListTickCount, expired, completed);
+
+		for (unsigned char smallId : expired)
+		{
+			app.DebugPrintf("SECURITY: Kicking unsecured client (smallId=%d) - cipher handshake timed out\n", smallId);
+			ServerRuntime::ServerLogManager::OnUnsecuredClientKicked(smallId);
+			EnterCriticalSection(&m_closePlayersCS);
+			m_smallIdsToClose.push_back(smallId);
+			LeaveCriticalSection(&m_closePlayersCS);
+		}
+
+		// Report cipher completion and open security gate for all completed handshakes
+		for (unsigned char smallId : completed)
+		{
+			// Open the security gate -- flush buffered game packets now that cipher is active
+			for (auto &p : players)
+			{
+				if (p == nullptr || p->connection == nullptr) continue;
+				INetworkPlayer *np = p->connection->getNetworkPlayer();
+				if (np != nullptr && np->GetSmallId() == smallId)
+				{
+					if (!p->connection->isSecurityGateOpen())
+					{
+						p->connection->openSecurityGate();
+					}
+					break;
+				}
+			}
+
+			if (ServerRuntime::Security::GetSettings().requireChallengeToken)
+			{
+				ServerRuntime::ServerLogManager::OnCipherHandshakeCompleted(smallId);
+			}
+			else
+			{
+				ServerRuntime::ServerLogManager::OnCipherCompletedNoTokenRequired(smallId);
+			}
+		}
+
+		// For newly-completed cipher handshakes, initiate identity token exchange
+		if (ServerRuntime::Security::GetSettings().requireChallengeToken)
+		{
+			for (unsigned char smallId : completed)
+			{
+				// Find the player by smallId
+				for (auto &p : players)
+				{
+					if (p == nullptr || p->connection == nullptr) continue;
+					INetworkPlayer *np = p->connection->getNetworkPlayer();
+					if (np == nullptr || np->GetSmallId() != smallId) continue;
+
+					PlayerUID xuid = p->connection->m_offlineXUID;
+					if (xuid == INVALID_XUID) xuid = p->connection->m_onlineXUID;
+
+					if (p->connection->getIdentityChallengeTick() >= 0)
+					{
+						// Already challenged, skip
+					}
+					else if (ServerRuntime::Security::GetIdentityTokenManager().HasToken(xuid))
+					{
+						// Returning player - challenge them
+						p->connection->send(std::make_shared<CustomPayloadPacket>(
+							CustomPayloadPacket::IDENTITY_TOKEN_CHALLENGE, byteArray()));
+						p->connection->setIdentityChallengeTick(s_playerListTickCount);
+						app.DebugPrintf("Server: Sent identity challenge to %ls (smallId=%d)\n",
+							p->getName().c_str(), smallId);
+					}
+					else
+					{
+						// New player - issue a token over the encrypted channel
+						uint8_t token[ServerRuntime::Security::IdentityTokenManager::TOKEN_SIZE];
+						if (ServerRuntime::Security::GetIdentityTokenManager().IssueToken(xuid, token))
+						{
+							byteArray tokenData(ServerRuntime::Security::IdentityTokenManager::TOKEN_SIZE);
+							memcpy(tokenData.data, token, ServerRuntime::Security::IdentityTokenManager::TOKEN_SIZE);
+							p->connection->send(std::make_shared<CustomPayloadPacket>(
+								CustomPayloadPacket::IDENTITY_TOKEN_ISSUE, tokenData));
+							SecureZeroMemory(token, sizeof(token));
+							p->connection->setIdentityVerified(true);
+							app.DebugPrintf("Server: Issued identity token to %ls (smallId=%d)\n",
+								p->getName().c_str(), smallId);
+							ServerRuntime::ServerLogManager::OnIdentityTokenIssued(smallId);
+						}
+					}
+					break;
+				}
+			}
+
+			// Enforce identity token response timeout
+			for (auto &p : players)
+			{
+				if (p == nullptr || p->connection == nullptr) continue;
+				int challengeTick = p->connection->getIdentityChallengeTick();
+				if (challengeTick >= 0 && !p->connection->isIdentityVerified() &&
+					(s_playerListTickCount - challengeTick) > kIdentityResponseGraceTicks)
+				{
+					app.DebugPrintf("SECURITY: Kicking %ls - identity token response timed out\n",
+						p->getName().c_str());
+					INetworkPlayer *npLog = p->connection->getNetworkPlayer();
+					if (npLog != nullptr)
+						ServerRuntime::ServerLogManager::OnIdentityTokenTimeout(npLog->GetSmallId(), p->getName());
+					p->connection->setIdentityChallengeTick(-1);  // prevent re-queuing
+					INetworkPlayer *np = p->connection->getNetworkPlayer();
+					if (np != nullptr)
+					{
+						EnterCriticalSection(&m_closePlayersCS);
+						m_smallIdsToClose.push_back(np->GetSmallId());
+						LeaveCriticalSection(&m_closePlayersCS);
+					}
+				}
+			}
+		}
+	}
+#endif
+
 	// 4J - brought changes to how often this is sent forward from 1.2.3
 	if (++sendAllPlayerInfoIn > SEND_PLAYER_INFO_INTERVAL)
 	{
@@ -1722,6 +1937,7 @@ bool PlayerList::isXuidBanned(PlayerUID xuid)
 
 	bool banned = false;
 
+	EnterCriticalSection(&m_banCS);
 	for(PlayerUID it : m_bannedXuids)
 	{
 		if( ProfileManager.AreXUIDSEqual( xuid, it ) )
@@ -1730,6 +1946,7 @@ bool PlayerList::isXuidBanned(PlayerUID xuid)
 			break;
 		}
 	}
+	LeaveCriticalSection(&m_banCS);
 
 #if defined(_WINDOWS64) && defined(MINECRAFT_SERVER_BUILD)
 	if (!banned && g_Win64DedicatedServer)
@@ -1741,8 +1958,118 @@ bool PlayerList::isXuidBanned(PlayerUID xuid)
 	return banned;
 }
 
+void PlayerList::banXuid(PlayerUID xuid)
+{
+	// 4J Added - for hardcore mode ban-on-death
+	// Ban a player's XUID. Used when a player dies in a hardcore multiplayer world.
+	if(xuid == INVALID_XUID) return;
+
+	EnterCriticalSection(&m_banCS);
+
+	// Check if already banned
+	bool alreadyBanned = false;
+	for(PlayerUID it : m_bannedXuids)
+	{
+		if( ProfileManager.AreXUIDSEqual( xuid, it ) )
+		{
+			alreadyBanned = true;
+			break;
+		}
+	}
+
+	if(!alreadyBanned)
+	{
+		m_bannedXuids.push_back(xuid);
+		app.DebugPrintf("PlayerList::banXuid - Player XUID banned for hardcore death\n");
+	}
+
+	LeaveCriticalSection(&m_banCS);
+}
+
+void PlayerList::banPlayerForHardcoreDeath(ServerPlayer *player)
+{
+	if (player == nullptr) return;
+
+	// Always apply the in-memory XUID ban (works for both client-hosted and dedicated)
+	banXuid(player->getOnlineXuid());
+
+#if defined(_WINDOWS64) && defined(MINECRAFT_SERVER_BUILD)
+	if (g_Win64DedicatedServer)
+	{
+		const std::string playerName = ServerRuntime::StringUtils::WideToUtf8(player->getName());
+
+		ServerRuntime::Access::BanMetadata metadata = ServerRuntime::Access::BanManager::BuildDefaultMetadata("Hardcore Death");
+		metadata.reason = "Died in hardcore mode";
+
+		// Ban online XUID
+		ServerRuntime::Access::AddPlayerBan(player->getOnlineXuid(), playerName, metadata);
+
+		// Also ban offline XUID if it differs (follows CliCommandBan pattern)
+		PlayerUID offlineXuid = player->getXuid();
+		if (offlineXuid != INVALID_XUID && offlineXuid != player->getOnlineXuid())
+		{
+			ServerRuntime::Access::AddPlayerBan(offlineXuid, playerName, metadata);
+		}
+
+		// Ban the player's IP address (uses same access path as CliCommandBanIp)
+		auto serverConfig = ServerRuntime::LoadServerPropertiesConfig();
+		if (serverConfig.hardcoreBanIp)
+		{
+			if (player->connection != nullptr && player->connection->connection != nullptr && player->connection->connection->getSocket() != nullptr)
+			{
+				const unsigned char smallId = player->connection->connection->getSocket()->getSmallId();
+				std::string ip;
+				if (smallId != 0 && ServerRuntime::ServerLogManager::TryGetConnectionRemoteIp(smallId, &ip))
+				{
+					ServerRuntime::Access::AddIpBan(ip, metadata);
+					ServerRuntime::LogInfof("Hardcore", "Player %s banned (XUID + IP %s) for dying in hardcore mode.", playerName.c_str(), ip.c_str());
+				}
+				else
+				{
+					ServerRuntime::LogInfof("Hardcore", "Player %s banned (XUID only, IP not available) for dying in hardcore mode.", playerName.c_str());
+				}
+			}
+			else
+			{
+				ServerRuntime::LogInfof("Hardcore", "Player %s banned (XUID only, no connection) for dying in hardcore mode.", playerName.c_str());
+			}
+		}
+		else
+		{
+			ServerRuntime::LogInfof("Hardcore", "Player %s banned (XUID only, IP ban disabled) for dying in hardcore mode.", playerName.c_str());
+		}
+
+		// Send ban reason then defer the actual close to the next tick, because this
+		// method runs mid-tick inside ServerPlayer::die(). A synchronous disconnect
+		// can invalidate the player/connection while the tick is still executing.
+		if (player->connection != nullptr)
+		{
+			player->connection->send(std::make_shared<DisconnectPacket>(DisconnectPacket::eDisconnect_Banned));
+			player->connection->closeOnTick();
+		}
+
+	}
+	else
+#endif
+	{
+		// Client-hosted: force-save so the host cannot circumvent death by quitting without saving.
+		// On dedicated server the autosave handles persistence, so skip the forced save to avoid
+		// the client getting stuck on a "host is saving" screen during disconnect.
+		app.SetXuiServerAction(ProfileManager.GetPrimaryPad(), eXuiServerAction_SaveGame);
+	}
+}
+
 // AP added for Vita so the range can be increased once the level starts
-void PlayerList::setViewDistance(int newViewDistance)
+void PlayerList::setViewDistance(const int newViewDistance)
 {
 	viewDistance = newViewDistance;
+
+	for (size_t i = 0; i < server->levels.length; i++)
+	{
+		ServerLevel* level = server->levels[i];
+		if (level != nullptr)
+		{
+			level->getChunkMap()->setRadius(newViewDistance);
+		}
+	}
 }

@@ -13,6 +13,9 @@
 #include "../ServerShutdown.h"
 #include "../WorldManager.h"
 #include "../Console/ServerCli.h"
+#include "../Security/SecurityConfig.h"
+#include "../Security/RateLimiter.h"
+#include "../Security/IdentityTokenManager.h"
 #include "Tesselator.h"
 #include "Windows64/4JLibs/inc/4J_Render.h"
 #include "Windows64/GameConfig/Minecraft.spa.h"
@@ -28,6 +31,9 @@
 #include "../../Minecraft.World/TilePos.h"
 #include "../../Minecraft.World/compression.h"
 #include "../../Minecraft.World/OldChunkStorage.h"
+#include "../../Minecraft.World/BiomeSource.h"
+#include "../../Minecraft.World/LevelType.h"
+#include "../../Minecraft.World/ConsoleSaveFileOriginal.h"
 #include "../../Minecraft.World/net.minecraft.world.level.tile.h"
 #include "../../Minecraft.World/Random.h"
 
@@ -325,6 +331,7 @@ static void TickCoreSystems()
 	g_NetworkManager.DoWork();
 	ProfileManager.Tick();
 	StorageManager.Tick();
+    ConsoleSaveFileOriginal::flushPendingBackgroundSave();
 }
 
 /**
@@ -369,6 +376,13 @@ int main(int argc, char **argv)
 	ServerPropertiesConfig serverProperties = LoadServerPropertiesConfig();
 	ApplyServerPropertiesToDedicatedConfig(serverProperties, &config);
 
+	// Hardcore mode forces Hard difficulty (matches vanilla Java behavior)
+	if (serverProperties.hardcore && serverProperties.difficulty != 3)
+	{
+		LogInfof("startup", "Hardcore mode enabled: forcing difficulty from %d to 3 (Hard).", serverProperties.difficulty);
+		serverProperties.difficulty = 3;
+	}
+
 	if (!ParseCommandLine(argc, argv, &config))
 	{
 		PrintUsage();
@@ -407,6 +421,41 @@ int main(int argc, char **argv)
 		return 2;
 	}
 	accessShutdownGuard.Activate();
+
+	{
+		ServerRuntime::Security::SecuritySettings secSettings;
+		secSettings.hidePlayerListPreLogin = serverProperties.hidePlayerListPreLogin;
+		secSettings.rateLimitConnectionsPerWindow = serverProperties.rateLimitConnectionsPerWindow;
+		secSettings.rateLimitWindowSeconds = serverProperties.rateLimitWindowSeconds;
+		secSettings.maxPendingConnections = serverProperties.maxPendingConnections;
+		secSettings.requireChallengeToken = serverProperties.requireChallengeToken;
+		secSettings.enableStreamCipher = serverProperties.enableStreamCipher;
+		secSettings.requireSecureClient = serverProperties.requireSecureClient;
+		secSettings.proxyProtocol = serverProperties.proxyProtocol;
+		ServerRuntime::Security::InitializeSettings(secSettings);
+		LogInfof("startup", "Security: hide-player-list=%s, rate-limit=%d/%ds, max-pending=%d, challenge-token=%s, stream-cipher=%s, require-secure-client=%s",
+			secSettings.hidePlayerListPreLogin ? "true" : "false",
+			secSettings.rateLimitConnectionsPerWindow,
+			secSettings.rateLimitWindowSeconds,
+			secSettings.maxPendingConnections,
+			secSettings.requireChallengeToken ? "required" : "optional",
+			secSettings.enableStreamCipher ? "enabled" : "disabled",
+			secSettings.requireSecureClient ? "true" : "false");
+		if (secSettings.proxyProtocol)
+		{
+			LogInfof("startup", "PROXY protocol: enabled (all connections must send PROXY v1 header)");
+		}
+		if (secSettings.requireSecureClient && !secSettings.enableStreamCipher)
+		{
+			LogInfof("startup", "WARNING: require-secure-client is enabled but enable-stream-cipher is disabled -- secure client enforcement will have no effect");
+		}
+
+		if (secSettings.requireChallengeToken)
+		{
+			ServerRuntime::Security::GetIdentityTokenManager().Initialize("identity-tokens.json");
+		}
+	}
+
 	LogInfof("startup", "LAN advertise: %s", serverProperties.lanAdvertise ? "enabled" : "disabled");
 	LogInfof("startup", "Whitelist: %s", serverProperties.whiteListEnabled ? "enabled" : "disabled");
 	LogInfof("startup", "Spawn protection radius: %d", serverProperties.spawnProtectionRadius);
@@ -529,6 +578,7 @@ int main(int argc, char **argv)
 	app.SetGameHostOption(eGameHostOption_DoTileDrops, serverProperties.doTileDrops ? 1 : 0);
 	app.SetGameHostOption(eGameHostOption_NaturalRegeneration, serverProperties.naturalRegeneration ? 1 : 0);
 	app.SetGameHostOption(eGameHostOption_DoDaylightCycle, serverProperties.doDaylightCycle ? 1 : 0);
+	app.SetGameHostOption(eGameHostOption_Hardcore, serverProperties.hardcore ? 1 : 0);
 #ifdef _LARGE_WORLDS
 	app.SetGameHostOption(eGameHostOption_WorldSize, serverProperties.worldSize);
 	// Apply desired target size for loading existing worlds.
@@ -536,6 +586,12 @@ int main(int argc, char **argv)
 	app.SetGameNewWorldSize(serverProperties.worldSizeChunks, true);
 	app.SetGameNewHellScale(serverProperties.worldHellScale);
 #endif
+
+	if (serverProperties.hasOverrideSeed)
+	{
+		LogInfof("startup", "Seed override active: %lld", serverProperties.overrideSeed);
+		app.SetSeedOverride(serverProperties.overrideSeed);
+	}
 
 	StorageManager.SetSaveDisabled(serverProperties.disableSaving);
 	// Read world name and fixed save-id from server.properties
@@ -576,9 +632,17 @@ int main(int argc, char **argv)
 	{
 		param->seed = config.seed;
 	}
+	else if (worldBootstrap.saveData == nullptr)
+	{
+		// Only run seed validation when creating a brand-new world.
+		// Existing worlds already have their seed in level.dat.
+		LogInfof("startup", "Finding seed with biome diversity for %d-chunk world...", config.worldSizeChunks);
+		param->seed = BiomeSource::findSeed(LevelType::lvl_normal, config.worldSizeChunks);
+		LogInfof("startup", "Selected seed: %lld", param->seed);
+	}
 	else
 	{
-		param->seed = (new Random())->nextLong();
+		param->seed = (new Random())->nextLong(); // placeholder; level.dat seed takes priority
 	}
 #ifdef _LARGE_WORLDS
 	param->xzSize = (unsigned int)config.worldSizeChunks;
@@ -701,7 +765,18 @@ int main(int argc, char **argv)
 	{
 		C4JThread waitThread(&WaitForServerStoppedThreadProc, NULL, "WaitServerStopped");
 		waitThread.Run();
+		while (waitThread.isRunning())
+		{
+			TickCoreSystems();
+			Sleep(10);
+		}
 		waitThread.WaitForCompletion(INFINITE);
+	}
+
+	while (ConsoleSaveFileOriginal::hasPendingBackgroundSave())
+	{
+		TickCoreSystems();
+		Sleep(10);
 	}
 
 	LogInfof("shutdown", "Cleaning up and exiting.");

@@ -175,8 +175,6 @@ bool CPlatformNetworkManagerStub::Initialise(CGameNetworkManager *pGameNetworkMa
 	m_bIsOfflineGame = false;
 #ifdef _WINDOWS64
 	m_bJoinPending = false;
-	m_joinLocalUsersMask = 0;
-	m_joinHostName[0] = 0;
 #endif
 	m_pSearchParam = nullptr;
 	m_SessionsUpdatedCallback = nullptr;
@@ -288,6 +286,8 @@ void CPlatformNetworkManagerStub::DoWork()
 		}
 	}
 
+	// Async join finalization: when the background thread reports success,
+	// register players and transition the session to starting state.
 	if (m_bJoinPending)
 	{
 		WinsockNetLayer::eJoinState state = WinsockNetLayer::GetJoinState();
@@ -296,7 +296,6 @@ void CPlatformNetworkManagerStub::DoWork()
 			WinsockNetLayer::FinalizeJoin();
 
 			BYTE localSmallId = WinsockNetLayer::GetLocalSmallId();
-
 			IQNet::m_player[localSmallId].m_smallId = localSmallId;
 			IQNet::m_player[localSmallId].m_isRemote = false;
 			IQNet::m_player[localSmallId].m_isHostPlayer = false;
@@ -548,17 +547,15 @@ int CPlatformNetworkManagerStub::JoinGame(FriendSessionInfo* searchResult, int l
 	IQNet::m_player[0].m_smallId = 0;
 	IQNet::m_player[0].m_isRemote = true;
 	IQNet::m_player[0].m_isHostPlayer = true;
+	// Remote host still maps to legacy host XUID in mixed old/new sessions.
 	IQNet::m_player[0].m_resolvedXuid = Win64Xuid::GetLegacyEmbeddedHostXuid();
 	wcsncpy_s(IQNet::m_player[0].m_gamertag, 32, searchResult->data.hostName, _TRUNCATE);
 
 	WinsockNetLayer::StopDiscovery();
 
-	wcsncpy_s(m_joinHostName, 32, searchResult->data.hostName, _TRUNCATE);
-	m_joinLocalUsersMask = localUsersMask;
-
 	if (!WinsockNetLayer::BeginJoinGame(hostIP, hostPort))
 	{
-		app.DebugPrintf("Win64 LAN: Failed to connect to %s:%d\n", hostIP, hostPort);
+		app.DebugPrintf("Win64 LAN: Failed to start async join to %s:%d\n", hostIP, hostPort);
 		return CGameNetworkManager::JOINGAME_FAIL_GENERAL;
 	}
 
@@ -978,6 +975,13 @@ void CPlatformNetworkManagerStub::ForceFriendsSessionRefresh()
 		delete m_pSearchResults[i];
 		m_pSearchResults[i] = nullptr;
 	}
+
+#ifdef _WINDOWS64
+	// Immediately rebuild the session list from servers.db so that
+	// edits/deletions are visible as soon as the UI regains focus,
+	// rather than waiting for the next TickSearch() cycle.
+	SearchForGames();
+#endif
 }
 
 INetworkPlayer *CPlatformNetworkManagerStub::addNetworkPlayer(IQNetPlayer *pQNetPlayer)

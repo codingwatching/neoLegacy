@@ -707,6 +707,8 @@ private:
 	bool			m_bGameNewWorldSizeUseMoat;
 	unsigned int	m_GameNewHellScale;
 #endif
+	int64_t			m_seedOverride;
+	bool			m_hasSeedOverride;
 	unsigned int	FromBigEndian(unsigned int uiValue);
 
 public:
@@ -724,6 +726,10 @@ public:
 	void			SetGameNewHellScale(unsigned int newScale)				{ m_GameNewHellScale = newScale; }
 	unsigned int	GetGameNewHellScale()									{ return m_GameNewHellScale; }
 #endif
+	void			SetSeedOverride(int64_t seed)	{ m_seedOverride = seed; m_hasSeedOverride = true; }
+	bool			HasSeedOverride()				{ return m_hasSeedOverride; }
+	int64_t			GetSeedOverride()				{ return m_seedOverride; }
+
 	void			SetResetNether(bool bResetNether) {m_bResetNether=bResetNether;}
 	bool			GetResetNether() {return m_bResetNether;}
 	bool			CanRecordStatsAndAchievements();
@@ -810,6 +816,10 @@ public:
 	void SetCorruptSaveDeleted(bool bVal) {m_bCorruptSaveDeleted=bVal;}
 	bool GetCorruptSaveDeleted(void) {return m_bCorruptSaveDeleted;}
 
+	// 4J Added: Store save folder name for hardcore world deletion on Win64
+	void SetCurrentSaveFolderName(const wstring& name) { m_currentSaveFolderName = name; }
+	const wstring& GetCurrentSaveFolderName() const { return m_currentSaveFolderName; }
+
 	void EnterSaveNotificationSection();
 	void LeaveSaveNotificationSection();
 private:
@@ -831,6 +841,7 @@ private:
 	CRITICAL_SECTION csAdditionalSkinBoxes;
 	CRITICAL_SECTION csAnimOverrideBitmask;
 	bool m_bCorruptSaveDeleted;
+	wstring m_currentSaveFolderName; // 4J Added: for hardcore world deletion on Win64
 
 	DWORD m_dwAdditionalModelParts[XUSER_MAX_COUNT];
 

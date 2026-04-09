@@ -1,6 +1,7 @@
 #include "ConsoleInputSource.h"
 #include "../Minecraft.World/PacketListener.h"
 #include "../Minecraft.World/JavaIntHash.h"
+#include <atomic>
 
 class MinecraftServer;
 class Connection;
@@ -130,15 +131,30 @@ public:
 
 	void setShowOnMaps(bool bVal);
 
-	void setWasKicked() { m_bWasKicked = true; }
-	bool getWasKicked() { return m_bWasKicked; }
+	void setWasKicked() { m_bWasKicked.store(true); }
+	bool getWasKicked() { return m_bWasKicked.load(); }
 
 	// 4J Added
 	bool hasClientTickedOnce() { return m_bHasClientTickedOnce; }
+
+	// Identity token verification state (accessed from both recv and main threads)
+	std::atomic<bool> m_identityVerified;
+	std::atomic<int> m_identityChallengeTick;
+
+	// Security gate: buffer packets until cipher handshake completes
+	bool m_securityGateOpen;
+	vector<shared_ptr<Packet>> m_securityBuffer;
+
+	bool isIdentityVerified() const { return m_identityVerified; }
+	int getIdentityChallengeTick() const { return m_identityChallengeTick; }
+	void setIdentityChallengeTick(int tick) { m_identityChallengeTick = tick; }
+	void setIdentityVerified(bool v) { m_identityVerified = v; }
+	bool isSecurityGateOpen() const { return m_securityGateOpen; }
+	void openSecurityGate();
 
 private:
 	bool m_bCloseOnTick;
 	vector<wstring> m_texturesRequested;
 
-	bool m_bWasKicked;
+	std::atomic<bool> m_bWasKicked{false};
 };

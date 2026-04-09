@@ -77,6 +77,11 @@
 #include "Windows64/stb_image_write.h"
 #endif
 
+#ifdef _WINDOWS64
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include "Windows64/stb_image_write.h"
+#endif
+
 #ifdef __ORBIS__
 #include "Orbis/Network/PsPlusUpsellWrapper_Orbis.h"
 #endif
@@ -4338,8 +4343,8 @@ void Minecraft::setLevel(MultiPlayerLevel *level, int message /*=-1*/, shared_pt
 		this->progressRenderer->progressStage(-1);
 	}
 
-	// 4J-PB - since we now play music in the menu, just let it keep playing
-	//soundEngine->playStreaming(L"", 0, 0, 0, 0, 0);
+	// Stop menu music and transition to game music for the new level
+	soundEngine->playStreaming(L"", 0, 0, 0, 1, 1);
 
 	// 4J - stop update thread from processing this level, which blocks until it is safe to move on - will be re-enabled if we set the level to be non-nullptr
 	gameRenderer->DisableUpdateThread();

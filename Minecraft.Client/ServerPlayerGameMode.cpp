@@ -171,7 +171,7 @@ void ServerPlayerGameMode::startDestroyBlock(int x, int y, int z, int face)
 	}
 }
 
-void ServerPlayerGameMode::stopDestroyBlock(int x, int y, int z)
+bool ServerPlayerGameMode::stopDestroyBlock(int x, int y, int z)
 {
 	if (x == xDestroyBlock && y == yDestroyBlock && z == zDestroyBlock)
 	{
@@ -187,6 +187,7 @@ void ServerPlayerGameMode::stopDestroyBlock(int x, int y, int z)
 				isDestroyingBlock = false;
 				level->destroyTileProgress(player->entityId, x, y, z, -1);
 				destroyBlock(x, y, z);
+				return true;
 			}
 			else if (!hasDelayedDestroy)
 			{
@@ -197,9 +198,11 @@ void ServerPlayerGameMode::stopDestroyBlock(int x, int y, int z)
 				delayedDestroyY = y;
 				delayedDestroyZ = z;
 				delayedTickStart = destroyProgressStart;
+				return true;
 			}
 		}
 	}
+	return false;
 }
 
 void ServerPlayerGameMode::abortDestroyBlock(int x, int y, int z)

@@ -15,7 +15,7 @@ private:
 		eControl_OnlineGame,
 	};
 
-	static int m_iDifficultyTitleSettingA[4];
+	static int m_iDifficultyTitleSettingA[5];
 
 	UIControl m_controlMainPanel;
 	UIControl_Label m_labelGameName, m_labelSeed, m_labelCreatedMode;
@@ -71,6 +71,7 @@ private:
 	wstring m_thumbnailName;
 
 	bool m_bRebuildTouchBoxes;
+	bool m_bHardcore;
 public:
 	UIScene_LoadMenu(int iPad, void *initData, UILayer *parentLayer);
 

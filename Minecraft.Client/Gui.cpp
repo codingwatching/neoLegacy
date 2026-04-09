@@ -499,11 +499,10 @@ void Gui::render(float a, bool mouseFree, int xMouse, int yMouse)
 
 					int y0 = 0;
 
-					// No hardcore on console
-					/*if (minecraft->level.getLevelData().isHardcore())
-					{
-						y0 = 5;
-					}*/
+					//if (minecraft->level->getLevelData()->isHardcore())
+					//{
+					//	y0 = 5;
+					//}
 
 					blit(xo, yo, 16 + bg * 9, 9 * y0, 9, 9);
 					if (blink)
@@ -854,10 +853,11 @@ void Gui::render(float a, bool mouseFree, int xMouse, int yMouse)
 	//            font.draw(str, x + 1, y, 0xffffff);
 	//        }
 
+
 	lastTickA = a;
 	// 4J Stu - This is now displayed in a xui scene
 #if 0
-	// Jukebox CD message
+// Jukebox CD message
     if (overlayMessageTime > 0)
 	{
         float t = overlayMessageTime - a;
@@ -1063,6 +1063,13 @@ void Gui::render(float a, bool mouseFree, int xMouse, int yMouse)
         glTranslatef(static_cast<float>(-debugLeft), static_cast<float>(-debugTop), 0.f);
 
         vector<wstring> lines;
+
+        // Only show version/branch for player 0 to avoid cluttering each splitscreen viewport
+        if (iPad == 0 && ClientConstants::SHOW_VERSION_WATERMARK)
+        {
+            lines.push_back(ClientConstants::VERSION_STRING);
+            lines.push_back(ClientConstants::BRANCH_STRING);
+        }
 
         if (minecraft->options->renderDebug && minecraft->player != nullptr && minecraft->level != nullptr)
         {
@@ -1418,6 +1425,9 @@ void Gui::clearMessages(int iPad)
 
 void Gui::addMessage(const wstring& _string,int iPad,bool bIsDeathMessage)
 {
+	{ char buf[32]; sprintf_s(buf, "[CHAT] Display (pad=%d): ", iPad); OutputDebugStringA(buf); }
+	OutputDebugStringW(_string.c_str());
+	OutputDebugStringA("\n");
 	wstring string = _string;	// 4J - Take copy of input as it is const
 	//int iScale=1;
 

@@ -31,6 +31,7 @@ private:
 
 	// 4J Added
 	vector<PlayerUID> m_bannedXuids;
+	CRITICAL_SECTION m_banCS; // 4J Added - protects m_bannedXuids for concurrent access
 	deque<BYTE> m_smallIdsToKick;
 	CRITICAL_SECTION m_kickPlayersCS;
 	deque<BYTE> m_smallIdsToClose;
@@ -135,6 +136,8 @@ public:
 	void closePlayerConnectionBySmallId(BYTE networkSmallId);
 	void queueSmallIdForRecycle(BYTE smallId);
 	bool isXuidBanned(PlayerUID xuid);
+	void banXuid(PlayerUID xuid);  // 4J Added - for hardcore mode ban-on-death
+	void banPlayerForHardcoreDeath(ServerPlayer *player);  // Persistent XUID + IP ban on hardcore death
 	// AP added for Vita so the range can be increased once the level starts
 	void setViewDistance(int newViewDistance);
 };

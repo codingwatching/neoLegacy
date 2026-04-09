@@ -802,6 +802,9 @@ void CGameNetworkManager::CancelJoinGame(LPVOID lpParam)
 #ifdef _XBOX_ONE
 	s_pPlatformNetworkManager->CancelJoinGame();
 #endif
+#ifdef _WINDOWS64
+	WinsockNetLayer::CancelJoinGame();
+#endif
 }
 
 bool CGameNetworkManager::LeaveGame(bool bMigrateHost)

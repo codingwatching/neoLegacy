@@ -207,6 +207,8 @@ CMinecraftApp::CMinecraftApp()
 	m_dwRequiredTexturePackID=0;
 
 	m_bResetNether=false;
+	m_seedOverride = 0;
+	m_hasSeedOverride = false;
 
 #ifdef _XBOX
 	//	m_bTransferSavesToXboxOne=false;
@@ -1398,6 +1400,7 @@ void CMinecraftApp::ApplyGameSettingsChanged(int iPad)
 	ActionGameSettings(iPad,eGameSetting_AnimatedCharacter);
 
 	ActionGameSettings(iPad,eGameSetting_PS3_EULA_Read);
+	ActionGameSettings(iPad,eGameSetting_VSync);
 
 }
 
@@ -1632,6 +1635,22 @@ void CMinecraftApp::ActionGameSettings(int iPad,eGameSetting eVal)
 		break;
 	case eGameSetting_PSVita_NetworkModeAdhoc:
 		//nothing to do here
+		break;
+	case eGameSetting_VSync:
+#ifdef _WINDOWS64
+		{
+			extern bool g_bVSync;
+			g_bVSync = (GetGameSettings(iPad, eGameSetting_VSync) != 0);
+		}
+#endif
+		break;
+	case eGameSetting_ExclusiveFullscreen:
+#ifdef _WINDOWS64
+		{
+			extern void SetExclusiveFullscreen(bool enabled);
+			SetExclusiveFullscreen(GetGameSettings(iPad, eGameSetting_ExclusiveFullscreen) != 0);
+		}
+#endif
 		break;
 	}
 }
@@ -2344,6 +2363,38 @@ void CMinecraftApp::SetGameSettings(int iPad,eGameSetting eVal,unsigned char ucV
 		}
 		break;
 
+	case eGameSetting_VSync:
+		if(((GameSettingsA[iPad]->uiBitmaskValues&GAMESETTING_VSYNC)>>24)!=(ucVal&0x01))
+		{
+			if(ucVal==1)
+			{
+				GameSettingsA[iPad]->uiBitmaskValues|=GAMESETTING_VSYNC;
+			}
+			else
+			{
+				GameSettingsA[iPad]->uiBitmaskValues&=~GAMESETTING_VSYNC;
+			}
+			ActionGameSettings(iPad,eVal);
+			GameSettingsA[iPad]->bSettingsChanged=true;
+		}
+		break;
+
+	case eGameSetting_ExclusiveFullscreen:
+		if(((GameSettingsA[iPad]->uiBitmaskValues&GAMESETTING_EXCLUSIVEFULLSCREEN)>>25)!=(ucVal&0x01))
+		{
+			if(ucVal==1)
+			{
+				GameSettingsA[iPad]->uiBitmaskValues|=GAMESETTING_EXCLUSIVEFULLSCREEN;
+			}
+			else
+			{
+				GameSettingsA[iPad]->uiBitmaskValues&=~GAMESETTING_EXCLUSIVEFULLSCREEN;
+			}
+			ActionGameSettings(iPad,eVal);
+			GameSettingsA[iPad]->bSettingsChanged=true;
+		}
+		break;
+
 	}
 }
 
@@ -2478,6 +2529,12 @@ unsigned char CMinecraftApp::GetGameSettings(int iPad,eGameSetting eVal)
 
 	case eGameSetting_PSVita_NetworkModeAdhoc:
 		return (GameSettingsA[iPad]->uiBitmaskValues&GAMESETTING_PSVITANETWORKMODEADHOC)>>17;
+
+	case eGameSetting_VSync:
+		return (GameSettingsA[iPad]->uiBitmaskValues&GAMESETTING_VSYNC)>>24;
+
+	case eGameSetting_ExclusiveFullscreen:
+		return (GameSettingsA[iPad]->uiBitmaskValues&GAMESETTING_EXCLUSIVEFULLSCREEN)>>25;
 
 	}
 	return 0;
@@ -8103,6 +8160,16 @@ void CMinecraftApp::SetGameHostOption(unsigned int &uiHostSettings, eGameHostOpt
 		uiHostSettings&=~GAME_HOST_OPTION_BITMASK_WORLDSIZE;
 		uiHostSettings|=(GAME_HOST_OPTION_BITMASK_WORLDSIZE & (uiVal<<GAME_HOST_OPTION_BITMASK_WORLDSIZE_BITSHIFT));
 		break;
+	case eGameHostOption_Hardcore: // 4J Added - for hardcore mode
+		if(uiVal!=0)
+		{
+			uiHostSettings |= GAME_HOST_OPTION_BITMASK_HARDCORE;
+		}
+		else
+		{
+			uiHostSettings &= ~GAME_HOST_OPTION_BITMASK_HARDCORE;
+		}
+		break;
 	case eGameHostOption_All:
 		uiHostSettings=uiVal;
 		break;
@@ -8203,6 +8270,9 @@ unsigned int CMinecraftApp::GetGameHostOption(unsigned int uiHostSettings, eGame
 		return !(uiHostSettings&GAME_HOST_OPTION_BITMASK_NATURALREGEN);
 	case eGameHostOption_DoDaylightCycle:
 		return !(uiHostSettings&GAME_HOST_OPTION_BITMASK_DODAYLIGHTCYCLE);
+		break;
+	case eGameHostOption_Hardcore: // 4J Added - for hardcore mode
+		return (uiHostSettings&GAME_HOST_OPTION_BITMASK_HARDCORE) ? 1 : 0;
 		break;
 	}
 

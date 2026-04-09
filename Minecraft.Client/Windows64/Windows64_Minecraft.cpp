@@ -49,6 +49,7 @@
 #include "Network/WinsockNetLayer.h"
 #include "Windows64_Xuid.h"
 #include "Common/UI/UI.h"
+#include "stb_image_write.h"
 
 // Forward-declare the internal Renderer class and its global instance from 4J_Render_PC_d.lib.
 // C4JRender (RenderManager) is a stateless wrapper — all D3D state lives in InternalRenderManager.
@@ -469,6 +470,123 @@ D3D_FEATURE_LEVEL       g_featureLevel = D3D_FEATURE_LEVEL_11_0;
 ID3D11Device*           g_pd3dDevice = nullptr;
 ID3D11DeviceContext*    g_pImmediateContext = nullptr;
 IDXGISwapChain*         g_pSwapChain = nullptr;
+bool                    g_bVSync = false;
+static bool             g_bTearingSupported = false;
+static bool             g_bPendingExclusiveFullscreen = false;
+static bool             g_bPendingExclusiveFullscreenValue = false;
+
+// Captures the D3D11 back buffer and saves it as a PNG screenshot.
+// Returns true on success and sets outFilename to the saved filename.
+static bool TakeScreenshot(wstring& outFilename)
+{
+	if (!g_pSwapChain || !g_pd3dDevice || !g_pImmediateContext)
+		return false;
+
+	ID3D11Texture2D* pBackBuffer = nullptr;
+	HRESULT hr = g_pSwapChain->GetBuffer(0, __uuidof(ID3D11Texture2D), (void**)&pBackBuffer);
+	if (FAILED(hr))
+		return false;
+
+	D3D11_TEXTURE2D_DESC desc;
+	pBackBuffer->GetDesc(&desc);
+	desc.Usage = D3D11_USAGE_STAGING;
+	desc.BindFlags = 0;
+	desc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+	desc.MiscFlags = 0;
+
+	bool success = false;
+	ID3D11Texture2D* pStaging = nullptr;
+	hr = g_pd3dDevice->CreateTexture2D(&desc, nullptr, &pStaging);
+	if (SUCCEEDED(hr))
+	{
+		g_pImmediateContext->CopyResource(pStaging, pBackBuffer);
+
+		wchar_t exePath[MAX_PATH];
+		GetModuleFileNameW(NULL, exePath, MAX_PATH);
+		wchar_t* lastSlash = wcsrchr(exePath, L'\\');
+		if (lastSlash) *(lastSlash + 1) = L'\0';
+		wstring screenshotDirPath = wstring(exePath) + L"screenshots";
+		CreateDirectoryW(screenshotDirPath.c_str(), NULL);
+
+		SYSTEMTIME st;
+		GetLocalTime(&st);
+		wchar_t filename[128];
+		swprintf_s(filename, L"%04d-%02d-%02d_%02d.%02d.%02d.png",
+			st.wYear, st.wMonth, st.wDay, st.wHour, st.wMinute, st.wSecond);
+		wstring screenshotPath = screenshotDirPath + L"\\" + filename;
+
+		D3D11_MAPPED_SUBRESOURCE mapped;
+		hr = g_pImmediateContext->Map(pStaging, 0, D3D11_MAP_READ, 0, &mapped);
+		if (SUCCEEDED(hr))
+		{
+			unsigned char* rgba = new unsigned char[desc.Width * desc.Height * 4];
+			for (UINT row = 0; row < desc.Height; row++)
+			{
+				unsigned char* src = (unsigned char*)mapped.pData + row * mapped.RowPitch;
+				unsigned char* dst = rgba + row * desc.Width * 4;
+				memcpy(dst, src, desc.Width * 4);
+				for (UINT x = 0; x < desc.Width; x++)
+					dst[x * 4 + 3] = 0xFF;
+			}
+			g_pImmediateContext->Unmap(pStaging, 0);
+
+			string narrowPath(screenshotPath.begin(), screenshotPath.end());
+			int writeResult = stbi_write_png(narrowPath.c_str(), desc.Width, desc.Height, 4, rgba, desc.Width * 4);
+			delete[] rgba;
+
+			if (writeResult)
+			{
+				outFilename = filename;
+				success = true;
+			}
+		}
+		pStaging->Release();
+	}
+	pBackBuffer->Release();
+	return success;
+}
+
+// COM proxy for IDXGISwapChain — delegates all calls to the real swap chain,
+// but overrides Present() to set SyncInterval=1 when VSync is enabled.
+// Avoids vtable patching, which conflicts with the D3D11 debug layer.
+static class SwapChainVSyncProxy : public IDXGISwapChain
+{
+public:
+	void SetTarget(IDXGISwapChain* pReal) { m_pReal = pReal; }
+
+	// IUnknown
+	HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** ppvObject) override { return m_pReal->QueryInterface(riid, ppvObject); }
+	ULONG STDMETHODCALLTYPE AddRef() override { return m_pReal->AddRef(); }
+	ULONG STDMETHODCALLTYPE Release() override { return m_pReal->Release(); }
+
+	// IDXGIObject
+	HRESULT STDMETHODCALLTYPE SetPrivateData(REFGUID Name, UINT DataSize, const void* pData) override { return m_pReal->SetPrivateData(Name, DataSize, pData); }
+	HRESULT STDMETHODCALLTYPE SetPrivateDataInterface(REFGUID Name, const IUnknown* pUnknown) override { return m_pReal->SetPrivateDataInterface(Name, pUnknown); }
+	HRESULT STDMETHODCALLTYPE GetPrivateData(REFGUID Name, UINT* pDataSize, void* pData) override { return m_pReal->GetPrivateData(Name, pDataSize, pData); }
+	HRESULT STDMETHODCALLTYPE GetParent(REFIID riid, void** ppParent) override { return m_pReal->GetParent(riid, ppParent); }
+
+	// IDXGIDeviceSubObject
+	HRESULT STDMETHODCALLTYPE GetDevice(REFIID riid, void** ppDevice) override { return m_pReal->GetDevice(riid, ppDevice); }
+
+	// IDXGISwapChain
+	// NOTE: The 4J RenderManager library hardcodes SyncInterval=1 and does NOT
+	// dispatch Present through this proxy's vtable.  VSync control is handled
+	// directly in the main loop (see the Present-the-frame block) instead.
+	HRESULT STDMETHODCALLTYPE Present(UINT SyncInterval, UINT Flags) override { return m_pReal->Present(SyncInterval, Flags); }
+	HRESULT STDMETHODCALLTYPE GetBuffer(UINT Buffer, REFIID riid, void** ppSurface) override { return m_pReal->GetBuffer(Buffer, riid, ppSurface); }
+	HRESULT STDMETHODCALLTYPE SetFullscreenState(BOOL Fullscreen, IDXGIOutput* pTarget) override { return m_pReal->SetFullscreenState(Fullscreen, pTarget); }
+	HRESULT STDMETHODCALLTYPE GetFullscreenState(BOOL* pFullscreen, IDXGIOutput** ppTarget) override { return m_pReal->GetFullscreenState(pFullscreen, ppTarget); }
+	HRESULT STDMETHODCALLTYPE GetDesc(DXGI_SWAP_CHAIN_DESC* pDesc) override { return m_pReal->GetDesc(pDesc); }
+	HRESULT STDMETHODCALLTYPE ResizeBuffers(UINT BufferCount, UINT Width, UINT Height, DXGI_FORMAT NewFormat, UINT SwapChainFlags) override { return m_pReal->ResizeBuffers(BufferCount, Width, Height, NewFormat, SwapChainFlags); }
+	HRESULT STDMETHODCALLTYPE ResizeTarget(const DXGI_MODE_DESC* pNewTargetParameters) override { return m_pReal->ResizeTarget(pNewTargetParameters); }
+	HRESULT STDMETHODCALLTYPE GetContainingOutput(IDXGIOutput** ppOutput) override { return m_pReal->GetContainingOutput(ppOutput); }
+	HRESULT STDMETHODCALLTYPE GetFrameStatistics(DXGI_FRAME_STATISTICS* pStats) override { return m_pReal->GetFrameStatistics(pStats); }
+	HRESULT STDMETHODCALLTYPE GetLastPresentCount(UINT* pLastPresentCount) override { return m_pReal->GetLastPresentCount(pLastPresentCount); }
+
+private:
+	IDXGISwapChain* m_pReal = nullptr;
+} g_swapChainProxy;
+
 ID3D11RenderTargetView* g_pRenderTargetView = nullptr;
 ID3D11DepthStencilView* g_pDepthStencilView = nullptr;
 ID3D11Texture2D*		g_pDepthStencilBuffer = nullptr;
@@ -508,7 +626,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 			break;
 
 		default:
-			return DefWindowProc(hWnd, message, wParam, lParam);
+			return DefWindowProcW(hWnd, message, wParam, lParam);
 		}
 		break;
 	case WM_PAINT:
@@ -565,7 +683,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 		else if (vk == VK_MENU)
 			vk = (lParam & (1 << 24)) ? VK_RMENU : VK_LMENU;
 		g_KBMInput.OnKeyDown(vk);
-		return DefWindowProc(hWnd, message, wParam, lParam);
+		return DefWindowProcW(hWnd, message, wParam, lParam);
 	}
 	case WM_KEYUP:
 	case WM_SYSKEYUP:
@@ -663,7 +781,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 		}
 		break;
 	default:
-		return DefWindowProc(hWnd, message, wParam, lParam);
+		return DefWindowProcW(hWnd, message, wParam, lParam);
 	}
 	return 0;
 }
@@ -675,23 +793,23 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 //
 ATOM MyRegisterClass(HINSTANCE hInstance)
 {
-	WNDCLASSEX wcex;
+	WNDCLASSEXW wcex;
 
-	wcex.cbSize = sizeof(WNDCLASSEX);
+	wcex.cbSize = sizeof(WNDCLASSEXW);
 
 	wcex.style			= CS_HREDRAW | CS_VREDRAW;
 	wcex.lpfnWndProc	= WndProc;
 	wcex.cbClsExtra		= 0;
 	wcex.cbWndExtra		= 0;
 	wcex.hInstance		= hInstance;
-	wcex.hIcon			= LoadIcon(hInstance, "Minecraft");
+	wcex.hIcon			= LoadIconW(hInstance, L"Minecraft");
 	wcex.hCursor		= LoadCursor(nullptr, IDC_ARROW);
 	wcex.hbrBackground	= (HBRUSH)(COLOR_WINDOW+1);
-	wcex.lpszMenuName	= "Minecraft";
-	wcex.lpszClassName	= "MinecraftClass";
+	wcex.lpszMenuName	= L"Minecraft";
+	wcex.lpszClassName	= L"MinecraftClass";
 	wcex.hIconSm		= LoadIcon(wcex.hInstance, MAKEINTRESOURCE(IDI_MINECRAFTWINDOWS));
 
-	return RegisterClassEx(&wcex);
+	return RegisterClassExW(&wcex);
 }
 
 //
@@ -711,8 +829,8 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 	RECT wr = {0, 0, g_rScreenWidth, g_rScreenHeight};    // set the size, but not the position
 	AdjustWindowRect(&wr, WS_OVERLAPPEDWINDOW, FALSE);    // adjust the size
 
-	g_hWnd = CreateWindow(	"MinecraftClass",
-		"Minecraft",
+	g_hWnd = CreateWindowW(	L"MinecraftClass",
+		L"Minecraft",
 		WS_OVERLAPPEDWINDOW,
 		CW_USEDEFAULT,
 		0,
@@ -819,19 +937,33 @@ HRESULT InitDevice()
 	};
 	UINT numFeatureLevels = ARRAYSIZE( featureLevels );
 
+	// Check tearing support before device/swap chain creation
+	{
+		IDXGIFactory5* factory5 = nullptr;
+		if (SUCCEEDED(CreateDXGIFactory1(__uuidof(IDXGIFactory5), (void**)&factory5)))
+		{
+			BOOL allowTearing = FALSE;
+			if (SUCCEEDED(factory5->CheckFeatureSupport(DXGI_FEATURE_PRESENT_ALLOW_TEARING, &allowTearing, sizeof(allowTearing))))
+				g_bTearingSupported = (allowTearing == TRUE);
+			factory5->Release();
+		}
+	}
+
 	DXGI_SWAP_CHAIN_DESC sd;
 	ZeroMemory( &sd, sizeof( sd ) );
-	sd.BufferCount = 1;
+	sd.BufferCount = 2;
 	sd.BufferDesc.Width = width;
 	sd.BufferDesc.Height = height;
 	sd.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-	sd.BufferDesc.RefreshRate.Numerator = 60;
-	sd.BufferDesc.RefreshRate.Denominator = 1;
-	sd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT | DXGI_USAGE_SHADER_INPUT;
+	sd.BufferDesc.RefreshRate.Numerator = 0;
+	sd.BufferDesc.RefreshRate.Denominator = 0;
+	sd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
 	sd.OutputWindow = g_hWnd;
 	sd.SampleDesc.Count = 1;
 	sd.SampleDesc.Quality = 0;
 	sd.Windowed = TRUE;
+	sd.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
+	sd.Flags = g_bTearingSupported ? DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING : 0;
 
 	for( UINT driverTypeIndex = 0; driverTypeIndex < numDriverTypes; driverTypeIndex++ )
 	{
@@ -892,7 +1024,8 @@ HRESULT InitDevice()
 	vp.TopLeftY = 0;
 	g_pImmediateContext->RSSetViewports( 1, &vp );
 
-	RenderManager.Initialise(g_pd3dDevice, g_pSwapChain);
+	g_swapChainProxy.SetTarget(g_pSwapChain);
+	RenderManager.Initialise(g_pd3dDevice, &g_swapChainProxy);
 
 	PostProcesser::GetInstance().Init();
 
@@ -908,7 +1041,7 @@ void Render()
 	const float ClearColor[4] = { 0.0f, 0.125f, 0.3f, 1.0f }; //red,green,blue,alpha
 
 	g_pImmediateContext->ClearRenderTargetView( g_pRenderTargetView, ClearColor );
-	g_pSwapChain->Present( 0, 0 );
+	g_pSwapChain->Present(0, g_bTearingSupported ? DXGI_PRESENT_ALLOW_TEARING : 0);
 }
 
 //--------------------------------------------------------------------------------------
@@ -948,11 +1081,11 @@ static bool ResizeD3D(int newW, int newH)
 
 	// Verify offsets by checking device and swap chain pointers
 	ID3D11Device** ppRM_Device = (ID3D11Device**)(pRM + 0x10);
-	if (*ppRM_Device != g_pd3dDevice || *ppRM_SC != g_pSwapChain)
+	if (*ppRM_Device != g_pd3dDevice || *ppRM_SC != (IDXGISwapChain*)&g_swapChainProxy)
 	{
 		app.DebugPrintf("[RESIZE] ERROR: RenderManager offset verification failed! "
 			"device=%p (expected %p) swapchain=%p (expected %p)\n",
-			*ppRM_Device, g_pd3dDevice, *ppRM_SC, g_pSwapChain);
+			*ppRM_Device, g_pd3dDevice, *ppRM_SC, (IDXGISwapChain*)&g_swapChainProxy);
 		return false;
 	}
 
@@ -983,59 +1116,61 @@ static bool ResizeD3D(int newW, int newH)
 
 	gdraw_D3D11_PreReset();
 
-	// Get IDXGIFactory from the existing device BEFORE destroying the old swap chain.
-	// If anything fails before we have a new swap chain, we abort without destroying
-	// the old one — leaving the Renderer in a valid (old-size) state.
 	IDXGISwapChain* pOldSwapChain = g_pSwapChain;
 	bool success = false;
 	HRESULT hr;
 
-	IDXGIDevice* dxgiDevice = NULL;
-	IDXGIAdapter* dxgiAdapter = NULL;
-	IDXGIFactory* dxgiFactory = NULL;
-	hr = g_pd3dDevice->QueryInterface(__uuidof(IDXGIDevice), (void**)&dxgiDevice);
-	if (FAILED(hr)) goto postReset;
-	hr = dxgiDevice->GetParent(__uuidof(IDXGIAdapter), (void**)&dxgiAdapter);
-	if (FAILED(hr)) { dxgiDevice->Release(); goto postReset; }
-	hr = dxgiAdapter->GetParent(__uuidof(IDXGIFactory), (void**)&dxgiFactory);
-	dxgiAdapter->Release();
-	dxgiDevice->Release();
-	if (FAILED(hr)) goto postReset;
-
-	// Create new swap chain at backbuffer size
+	// Create a brand-new swap chain instead of ResizeBuffers.
+	// ResizeBuffers requires ALL backbuffer refs released, but the closed-source
+	// Renderer holds hidden refs we can't track — causing DXGI_ERROR_INVALID_CALL
+	// and leaving the Renderer with NULL views (black screen).
+	// Creating a new swap chain orphans the old backbuffer (tiny leak) but avoids
+	// the need to release every hidden reference.
 	{
+		IDXGIDevice* dxgiDevice = NULL;
+		IDXGIAdapter* dxgiAdapter = NULL;
+		IDXGIFactory* dxgiFactory = NULL;
+		hr = g_pd3dDevice->QueryInterface(__uuidof(IDXGIDevice), (void**)&dxgiDevice);
+		if (FAILED(hr)) goto postReset;
+		hr = dxgiDevice->GetParent(__uuidof(IDXGIAdapter), (void**)&dxgiAdapter);
+		dxgiDevice->Release();
+		if (FAILED(hr)) goto postReset;
+		hr = dxgiAdapter->GetParent(__uuidof(IDXGIFactory), (void**)&dxgiFactory);
+		dxgiAdapter->Release();
+		if (FAILED(hr)) goto postReset;
+
 		DXGI_SWAP_CHAIN_DESC sd = {};
-		sd.BufferCount = 1;
+		sd.BufferCount = 2;
 		sd.BufferDesc.Width = bbW;
 		sd.BufferDesc.Height = bbH;
 		sd.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-		sd.BufferDesc.RefreshRate.Numerator = 60;
-		sd.BufferDesc.RefreshRate.Denominator = 1;
-		sd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT | DXGI_USAGE_SHADER_INPUT;
+		sd.BufferDesc.RefreshRate.Numerator = 0;
+		sd.BufferDesc.RefreshRate.Denominator = 0;
+		sd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
 		sd.OutputWindow = g_hWnd;
 		sd.SampleDesc.Count = 1;
 		sd.SampleDesc.Quality = 0;
 		sd.Windowed = TRUE;
+		sd.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
+		sd.Flags = g_bTearingSupported ? DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING : 0;
 
 		IDXGISwapChain* pNewSwapChain = NULL;
 		hr = dxgiFactory->CreateSwapChain(g_pd3dDevice, &sd, &pNewSwapChain);
 		dxgiFactory->Release();
-		if (FAILED(hr) || pNewSwapChain == NULL)
+		if (FAILED(hr))
 		{
-			app.DebugPrintf("[RESIZE] CreateSwapChain FAILED hr=0x%08X — keeping old swap chain\n", (unsigned)hr);
+			app.DebugPrintf("[RESIZE] CreateSwapChain FAILED hr=0x%08X\n", (unsigned)hr);
 			goto postReset;
 		}
 
-		// New swap chain created successfully — NOW destroy the old one.
-		// The Renderer's internal RTV/SRV still reference the old backbuffer —
-		// those COM objects become orphaned (tiny leak, harmless). We DON'T
-		// release them because unknown code may also hold refs.
+		// Destroy old, install new
 		pOldSwapChain->Release();
 		g_pSwapChain = pNewSwapChain;
+		g_swapChainProxy.SetTarget(g_pSwapChain);
 	}
 
-	// Patch Renderer's swap chain pointer
-	*ppRM_SC = g_pSwapChain;
+	// Patch Renderer's swap chain pointer (use proxy so VSync override stays active)
+	*ppRM_SC = &g_swapChainProxy;
 
 	// Create render target views from new backbuffer
 	{
@@ -1218,6 +1353,29 @@ void ToggleFullscreen()
 
 	if (g_KBMInput.IsWindowFocused())
 		g_KBMInput.SetWindowFocused(true);
+}
+
+// Called from UI thread — defers the actual transition to the main game loop
+void SetExclusiveFullscreen(bool enabled)
+{
+	if (enabled == g_isFullscreen)
+		return;
+	g_bPendingExclusiveFullscreen = true;
+	g_bPendingExclusiveFullscreenValue = enabled;
+}
+
+// Uses borderless fullscreen (ToggleFullscreen) rather than DXGI SetFullscreenState.
+// With DXGI_SWAP_EFFECT_FLIP_DISCARD + DXGI_PRESENT_ALLOW_TEARING, borderless
+// fullscreen gets the same direct-flip path as exclusive fullscreen on Windows 10+ —
+// identical latency and uncapped FPS. True DXGI exclusive fullscreen is blocked by
+// the 4J Renderer holding hidden backbuffer references that prevent ResizeBuffers.
+static void ApplyExclusiveFullscreen(bool enabled)
+{
+	// Toggle into/out of borderless fullscreen if state doesn't match
+	if (enabled && !g_isFullscreen)
+		ToggleFullscreen();
+	else if (!enabled && g_isFullscreen)
+		ToggleFullscreen();
 }
 
 //--------------------------------------------------------------------------------------
@@ -1747,7 +1905,20 @@ int APIENTRY _tWinMain(_In_ HINSTANCE hInstance,
 		RenderManager.Set_matrixDirty();
 #endif
 		// Present the frame.
-		RenderManager.Present();
+		// RenderManager.Present() hardcodes SyncInterval=1 internally.
+		// When VSync is off, bypass it and call the swap chain directly.
+		if (!g_bVSync && g_bTearingSupported && g_pSwapChain)
+		{
+			HRESULT hrPresent = g_pSwapChain->Present(0, DXGI_PRESENT_ALLOW_TEARING);
+			// If tearing Present fails (e.g. during fullscreen transition),
+			// fall back to the library's VSync'd Present for this frame.
+			if (FAILED(hrPresent))
+				RenderManager.Present();
+		}
+		else
+		{
+			RenderManager.Present();
+		}
 
 		ui.CheckMenuDisplayed();
 
@@ -1769,6 +1940,20 @@ int APIENTRY _tWinMain(_In_ HINSTANCE hInstance,
 			else if (shouldCapture && !g_KBMInput.IsMouseGrabbed() && GetFocus() == g_hWnd && !altToggleSuppressCapture)
 			{
 				g_KBMInput.SetMouseGrabbed(true);
+			}
+		}
+
+		// F2 takes a screenshot (works in any context)
+		if (g_KBMInput.IsKeyPressed(KeyboardMouseInput::KEY_SCREENSHOT))
+		{
+			wstring filename;
+			if (TakeScreenshot(filename))
+			{
+				if (pMinecraft->gui && pMinecraft->player)
+				{
+					wstring msg = L"Saved screenshot to " + filename;
+					pMinecraft->gui->addMessage(msg, ProfileManager.GetPrimaryPad());
+				}
 			}
 		}
 
@@ -1827,6 +2012,14 @@ int APIENTRY _tWinMain(_In_ HINSTANCE hInstance,
 		if (g_KBMInput.IsKeyPressed(KeyboardMouseInput::KEY_FULLSCREEN))
 		{
 			ToggleFullscreen();
+			app.SetGameSettings(ProfileManager.GetPrimaryPad(), eGameSetting_ExclusiveFullscreen, g_isFullscreen ? 1 : 0);
+		}
+
+		// Apply deferred exclusive fullscreen toggle
+		if (g_bPendingExclusiveFullscreen)
+		{
+			g_bPendingExclusiveFullscreen = false;
+			ApplyExclusiveFullscreen(g_bPendingExclusiveFullscreenValue);
 		}
 
 		// TAB opens game info menu. - Vvis :3 - Updated by detectiveren
