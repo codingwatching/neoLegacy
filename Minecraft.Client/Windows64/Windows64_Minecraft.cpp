@@ -3,6 +3,8 @@
 
 #include "stdafx.h"
 
+#include <dxgi1_4.h>  // IDXGISwapChain3 for SetColorSpace1
+
 #include <assert.h>
 #include <iostream>
 #include <ShellScalingApi.h>
@@ -551,6 +553,10 @@ ID3D11Texture2D*		g_pDepthStencilBuffer = nullptr;
 static const float kClearColorWhite[4] = { 1.0f, 1.0f, 1.0f, 1.0f };
 static const float kClearColorBlack[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
 
+// True when the swap chain is in DXGI exclusive fullscreen. Lets ResizeD3D
+// skip its destroy-and-recreate path, which would break exclusive ownership.
+static bool g_bDxgiExclusiveFullscreen = false;
+
 //
 //  FUNCTION: WndProc(HWND, UINT, WPARAM, LPARAM)
 //
@@ -905,14 +911,17 @@ HRESULT InitDevice()
 	// backbuffer refs we can't release).  Bitblt DISCARD has no HWND lock, so
 	// the "destroy old, create new" resize path in ResizeD3D() works cleanly.
 	// VSync toggle still works via the SyncInterval parameter on Present().
+	// RefreshRate=0/0 so DXGI matches the current display mode. Hardcoding a
+	// rate would force a mode switch on SetFullscreenState, which can produce
+	// "input signal out of range" errors on high-refresh monitors.
 	DXGI_SWAP_CHAIN_DESC sd;
 	ZeroMemory( &sd, sizeof( sd ) );
 	sd.BufferCount = 1;
 	sd.BufferDesc.Width = width;
 	sd.BufferDesc.Height = height;
 	sd.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-	sd.BufferDesc.RefreshRate.Numerator = 60;
-	sd.BufferDesc.RefreshRate.Denominator = 1;
+	sd.BufferDesc.RefreshRate.Numerator = 0;
+	sd.BufferDesc.RefreshRate.Denominator = 0;
 	sd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT | DXGI_USAGE_SHADER_INPUT;
 	sd.OutputWindow = g_hWnd;
 	sd.SampleDesc.Count = 1;
@@ -1005,6 +1014,9 @@ static bool ResizeD3D(int newW, int newH)
 	if (newW <= 0 || newH <= 0) return false;
 	if (!g_pSwapChain) return false;
 	if (!g_bResizeReady) return false;
+	// In exclusive fullscreen the swap chain must not be recreated.
+	if (g_bDxgiExclusiveFullscreen)
+		return false;
 
 	int bbW = newW;
 	int bbH = newH;
@@ -1101,8 +1113,9 @@ static bool ResizeD3D(int newW, int newH)
 		sd.BufferDesc.Width = bbW;
 		sd.BufferDesc.Height = bbH;
 		sd.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-		sd.BufferDesc.RefreshRate.Numerator = 60;
-		sd.BufferDesc.RefreshRate.Denominator = 1;
+		// RefreshRate=0/0 matches InitDevice; see comment there.
+		sd.BufferDesc.RefreshRate.Numerator = 0;
+		sd.BufferDesc.RefreshRate.Denominator = 0;
 		sd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT | DXGI_USAGE_SHADER_INPUT;
 		sd.OutputWindow = g_hWnd;
 		sd.SampleDesc.Count = 1;
@@ -1318,16 +1331,99 @@ void SetExclusiveFullscreen(bool enabled)
 	g_bPendingExclusiveFullscreenValue = enabled;
 }
 
-// Uses borderless fullscreen (ToggleFullscreen) rather than DXGI SetFullscreenState.
-// True DXGI exclusive fullscreen is blocked by the 4J Renderer holding hidden
-// backbuffer references that prevent ResizeBuffers.
+// Enter or leave true DXGI exclusive fullscreen. With our bitblt swap chain,
+// Present(SyncInterval=0) in exclusive mode produces real screen tearing via
+// direct scanout (DWM is out of the pipeline). Flip mode with ALLOW_TEARING
+// would also work but is blocked by the 4J Renderer's deferred context refs
+// on the backbuffer, which DXGI's ResizeBuffers cannot release.
 static void ApplyExclusiveFullscreen(bool enabled)
 {
-	// Toggle into/out of borderless fullscreen if state doesn't match
-	if (enabled && !g_isFullscreen)
-		ToggleFullscreen();
-	else if (!enabled && g_isFullscreen)
-		ToggleFullscreen();
+	if (!g_pSwapChain)
+		return;
+
+	LONG styleBefore = GetWindowLong(g_hWnd, GWL_STYLE);
+
+	if (enabled)
+	{
+		// Grow the window to cover the monitor first. This fires WM_SIZE which
+		// runs ResizeD3D and recreates the backbuffer at monitor-native size.
+		// Otherwise a small windowed backbuffer would enter exclusive fullscreen
+		// at that smaller size and DXGI would scale it to fill the monitor,
+		// producing a filtered / washed-out look.
+		HMONITOR hMon = MonitorFromWindow(g_hWnd, MONITOR_DEFAULTTOPRIMARY);
+		MONITORINFO mi = {};
+		mi.cbSize = sizeof(mi);
+		if (GetMonitorInfo(hMon, &mi))
+		{
+			int monW = mi.rcMonitor.right - mi.rcMonitor.left;
+			int monH = mi.rcMonitor.bottom - mi.rcMonitor.top;
+			SetWindowLong(g_hWnd, GWL_STYLE, (styleBefore & ~WS_OVERLAPPEDWINDOW) | WS_VISIBLE);
+			SetWindowPos(g_hWnd, HWND_TOP,
+				mi.rcMonitor.left, mi.rcMonitor.top, monW, monH,
+				SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
+
+			// ResizeTarget pins the display mode to the backbuffer size with
+			// no scaling. Microsoft's pattern is ResizeTarget then
+			// SetFullscreenState then ResizeTarget again (see below).
+			DXGI_MODE_DESC targetMode = {};
+			targetMode.Width = monW;
+			targetMode.Height = monH;
+			targetMode.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+			targetMode.ScanlineOrdering = DXGI_MODE_SCANLINE_ORDER_UNSPECIFIED;
+			targetMode.Scaling = DXGI_MODE_SCALING_UNSPECIFIED;
+			g_pSwapChain->ResizeTarget(&targetMode);
+		}
+	}
+
+	HRESULT hr = g_pSwapChain->SetFullscreenState(enabled ? TRUE : FALSE, nullptr);
+	if (FAILED(hr))
+		return;
+
+	g_bDxgiExclusiveFullscreen = enabled;
+
+	if (enabled)
+	{
+		// Explicitly declare sRGB. Default for R8G8B8A8_UNORM but some drivers
+		// behave differently if the color space is never set.
+		IDXGISwapChain3* pSwapChain3 = nullptr;
+		if (SUCCEEDED(g_pSwapChain->QueryInterface(__uuidof(IDXGISwapChain3), (void**)&pSwapChain3)) && pSwapChain3)
+		{
+			UINT colorSpaceSupport = 0;
+			pSwapChain3->CheckColorSpaceSupport(DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709, &colorSpaceSupport);
+			if (colorSpaceSupport & DXGI_SWAP_CHAIN_COLOR_SPACE_SUPPORT_FLAG_PRESENT)
+				pSwapChain3->SetColorSpace1(DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709);
+			pSwapChain3->Release();
+		}
+
+		// Second ResizeTarget per Microsoft's recommendation to make the mode stick.
+		HMONITOR hMon2 = MonitorFromWindow(g_hWnd, MONITOR_DEFAULTTOPRIMARY);
+		MONITORINFO mi2 = {};
+		mi2.cbSize = sizeof(mi2);
+		if (GetMonitorInfo(hMon2, &mi2))
+		{
+			DXGI_MODE_DESC targetMode2 = {};
+			targetMode2.Width = mi2.rcMonitor.right - mi2.rcMonitor.left;
+			targetMode2.Height = mi2.rcMonitor.bottom - mi2.rcMonitor.top;
+			targetMode2.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+			targetMode2.ScanlineOrdering = DXGI_MODE_SCANLINE_ORDER_UNSPECIFIED;
+			targetMode2.Scaling = DXGI_MODE_SCALING_UNSPECIFIED;
+			g_pSwapChain->ResizeTarget(&targetMode2);
+		}
+		g_isFullscreen = true;
+	}
+	else
+	{
+		// Force a real decorated windowed state on exit. DXGI would otherwise
+		// restore whatever state the window had before SetFullscreenState,
+		// which may still be borderless.
+		SetWindowLong(g_hWnd, GWL_STYLE, WS_OVERLAPPEDWINDOW | WS_VISIBLE);
+		const int w = 1280, h = 720;
+		const int sw = GetSystemMetrics(SM_CXSCREEN);
+		const int sh = GetSystemMetrics(SM_CYSCREEN);
+		SetWindowPos(g_hWnd, HWND_TOP, (sw - w) / 2, (sh - h) / 2, w, h,
+			SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
+		g_isFullscreen = false;
+	}
 }
 
 //--------------------------------------------------------------------------------------
@@ -1562,10 +1658,13 @@ int APIENTRY _tWinMain(_In_ HINSTANCE hInstance,
 		return 0;
 	}
 
-	// Restore fullscreen state from previous session
-	if (LoadFullscreenOption() && !g_isFullscreen || launchOptions.fullscreen)
+	// Restore fullscreen state from previous session. Route through the
+	// deferred exclusive fullscreen path so the main loop applies it on the
+	// first tick (safer than transitioning during init).
+	if ((LoadFullscreenOption() && !g_isFullscreen) || launchOptions.fullscreen)
 	{
-		ToggleFullscreen();
+		g_bPendingExclusiveFullscreen = true;
+		g_bPendingExclusiveFullscreenValue = true;
 	}
 
 #if 0
@@ -1857,10 +1956,9 @@ int APIENTRY _tWinMain(_In_ HINSTANCE hInstance,
 
 		RenderManager.Set_matrixDirty();
 #endif
-		// Present the frame.
-		// RenderManager.Present() hardcodes SyncInterval=1 internally.
-		// When VSync is off, bypass it and call the swap chain directly
-		// with SyncInterval=0.
+		// Present the frame. RenderManager.Present() hardcodes SyncInterval=1,
+		// so when VSync is off we bypass it for uncapped frames. In DXGI
+		// exclusive fullscreen this produces real tearing via direct scanout.
 		if (!g_bVSync && g_pSwapChain)
 		{
 			HRESULT hrPresent = g_pSwapChain->Present(0, 0);
@@ -1962,11 +2060,11 @@ int APIENTRY _tWinMain(_In_ HINSTANCE hInstance,
         }
 #endif
 
-		// toggle fullscreen
+		// toggle fullscreen (DXGI exclusive via ApplyExclusiveFullscreen)
 		if (g_KBMInput.IsKeyPressed(KeyboardMouseInput::KEY_FULLSCREEN))
 		{
-			ToggleFullscreen();
-			app.SetGameSettings(ProfileManager.GetPrimaryPad(), eGameSetting_ExclusiveFullscreen, g_isFullscreen ? 1 : 0);
+			ApplyExclusiveFullscreen(!g_bDxgiExclusiveFullscreen);
+			app.SetGameSettings(ProfileManager.GetPrimaryPad(), eGameSetting_ExclusiveFullscreen, g_bDxgiExclusiveFullscreen ? 1 : 0);
 		}
 
 		// Apply deferred exclusive fullscreen toggle
