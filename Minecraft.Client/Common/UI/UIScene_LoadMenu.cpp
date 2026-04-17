@@ -291,7 +291,8 @@ UIScene_LoadMenu::UIScene_LoadMenu(int iPad, void *initData, UILayer *parentLaye
 				// Hardcore locks game mode to Survival
 				m_iGameModeId = GameType::SURVIVAL->getId();
 				m_bGameModeCreative = false;
-				m_buttonGamemode.setLabel(app.GetString(IDS_GAMEMODE_SURVIVAL));
+				m_sliderGamemode.setLabel(app.GetString(IDS_GAMEMODE_SURVIVAL));
+			    m_sliderGamemode.SetSliderValue(0);
 			}
 		}
 #endif
