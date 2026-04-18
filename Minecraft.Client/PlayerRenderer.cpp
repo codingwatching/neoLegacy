@@ -18,6 +18,7 @@
 #include "Textures.h"
 #include "Skins.h"
 
+
 ResourceLocation PlayerRenderer::SKELETON_LOCATION = ResourceLocation(TN_MOB_SKELETON);
 ResourceLocation PlayerRenderer::WITHER_SKELETON_LOCATION = ResourceLocation(TN_MOB_WITHER_SKELETON);
 ResourceLocation PlayerRenderer::ZOMBIE_LOCATION = ResourceLocation(TN_MOB_ZOMBIE);
