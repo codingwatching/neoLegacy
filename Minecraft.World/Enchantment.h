@@ -25,7 +25,7 @@ public :
 	static Enchantment *projectileProtection;
 	static Enchantment *drownProtection;
 	static Enchantment *waterWorker;
-    static Enchantment *depthStrider;
+    static Enchantment *waterWalker;
 	static Enchantment *thorns;
 
 	// weapon

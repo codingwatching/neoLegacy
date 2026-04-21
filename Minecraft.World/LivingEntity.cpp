@@ -1505,10 +1505,10 @@ void LivingEntity::travel(float xa, float ya)
 	{
 		double yo = y;
 		
-		int depthStriderLevel = EnchantmentHelper::getDepthStrider(dynamic_pointer_cast<LivingEntity>(shared_from_this()));
-		if (depthStriderLevel > 3)
+		int waterWalkerLever = EnchantmentHelper::getWaterWalker(dynamic_pointer_cast<LivingEntity>(shared_from_this()));
+		if (waterWalkerLever > 3)
 		{
-			depthStriderLevel = 3;
+			waterWalkerLever = 3;
 		}
 		
 		float waterFriction = 0.8f;
@@ -1516,13 +1516,13 @@ void LivingEntity::travel(float xa, float ya)
 		
 		if (!onGround)
 		{
-			depthStriderLevel *= 0.5f;
+			waterWalkerLever *= 0.5f;
 		}
 		
-		if (depthStriderLevel > 0)
+		if (waterWalkerLever > 0)
 		{
-			waterFriction += (0.5f - waterFriction) * depthStriderLevel / 3.0f;
-			waterSpeed += (getSpeed() * 1.0f - waterSpeed) * depthStriderLevel / 3.0f;
+			waterFriction += (0.5f - waterFriction) * waterWalkerLever / 3.0f;
+			waterSpeed += (getSpeed() * 1.0f - waterSpeed) * waterWalkerLever / 3.0f;
 		}
 		
 		moveRelative(xa, ya, waterSpeed);

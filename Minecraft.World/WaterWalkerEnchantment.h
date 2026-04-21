@@ -2,10 +2,10 @@
 
 #include "Enchantment.h"
 
-class DepthStriderEnchantment : public Enchantment
+class WaterWalkerEnchantment : public Enchantment
 {
 public:
-	DepthStriderEnchantment(int id, int freq);
+	WaterWalkerEnchantment(int id, int freq);
 
 	virtual int getMinCost(int level);
 	virtual int getMaxCost(int level);
