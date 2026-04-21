@@ -1504,12 +1504,33 @@ void LivingEntity::travel(float xa, float ya)
 	if (isInWater() && !(thisPlayer && thisPlayer->abilities.flying) )
 	{
 		double yo = y;
-		moveRelative(xa, ya, useNewAi() ? 0.04f : 0.02f);
+		
+		int depthStriderLevel = EnchantmentHelper::getDepthStrider(dynamic_pointer_cast<LivingEntity>(shared_from_this()));
+		if (depthStriderLevel > 3)
+		{
+			depthStriderLevel = 3;
+		}
+		
+		float waterFriction = 0.8f;
+		float waterSpeed = useNewAi() ? 0.04f : 0.02f;
+		
+		if (!onGround)
+		{
+			depthStriderLevel *= 0.5f;
+		}
+		
+		if (depthStriderLevel > 0)
+		{
+			waterFriction += (0.5f - waterFriction) * depthStriderLevel / 3.0f;
+			waterSpeed += (getSpeed() * 1.0f - waterSpeed) * depthStriderLevel / 3.0f;
+		}
+		
+		moveRelative(xa, ya, waterSpeed);
 		move(xd, yd, zd);
 
-		xd *= 0.80f;
-		yd *= 0.80f;
-		zd *= 0.80f;
+		xd *= waterFriction;
+		yd *= 0.8;
+		zd *= waterFriction;
 		yd -= 0.02;
 
 		if (horizontalCollision && isFree(xd, yd + 0.6f - y + yo, zd))

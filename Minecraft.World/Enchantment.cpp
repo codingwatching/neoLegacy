@@ -3,6 +3,7 @@
 #include "net.minecraft.world.item.h"
 #include "Enchantment.h"
 
+#include "DepthStriderEnchantment.h"
 #include "LuckOfTheSeaEnchantment.h"
 #include "LureEnchantment.h"
 
@@ -17,6 +18,7 @@ Enchantment *Enchantment::explosionProtection = nullptr;
 Enchantment *Enchantment::projectileProtection = nullptr;
 Enchantment *Enchantment::drownProtection = nullptr;
 Enchantment *Enchantment::waterWorker = nullptr;
+Enchantment *Enchantment::depthStrider = nullptr;
 Enchantment *Enchantment::thorns = nullptr;
 
 // weapon
@@ -53,6 +55,7 @@ void Enchantment::staticCtor()
 	drownProtection = new OxygenEnchantment(5, FREQ_RARE);
 	waterWorker = new WaterWorkerEnchantment(6, FREQ_RARE);
 	thorns = new ThornsEnchantment(7, FREQ_VERY_RARE);
+    depthStrider = new DepthStriderEnchantment(8, FREQ_RARE);
 
 	// weapon
 	damageBonus = new DamageEnchantment(16, FREQ_COMMON, DamageEnchantment::ALL);

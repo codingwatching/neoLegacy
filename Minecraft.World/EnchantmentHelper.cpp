@@ -234,6 +234,11 @@ bool EnchantmentHelper::hasWaterWorkerBonus(shared_ptr<LivingEntity> source)
 	return getEnchantmentLevel(Enchantment::waterWorker->id, source->getEquipmentSlots() ) > 0;
 }
 
+int EnchantmentHelper::getDepthStrider(shared_ptr<LivingEntity> source)
+{
+	return getEnchantmentLevel(Enchantment::depthStrider->id, source->getEquipmentSlots() );
+}
+
 int EnchantmentHelper::getArmorThorns(shared_ptr<LivingEntity> source)
 {
 	return getEnchantmentLevel(Enchantment::thorns->id, source->getEquipmentSlots());
