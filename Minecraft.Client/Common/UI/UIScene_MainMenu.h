@@ -8,11 +8,11 @@ private:
 	enum EControls
 	{
 		eControl_PlayGame,
+		eControl_MiniGames,
 		eControl_Leaderboards,
 		eControl_Achievements,
 		eControl_HelpAndOptions,
 		eControl_UnlockOrDLC,
-		eControl_MiniGames,
 #ifndef _DURANGO
 		eControl_Exit,
 #else
@@ -34,16 +34,16 @@ private:
 	UIControl m_controlTimer;
 	UI_BEGIN_MAP_ELEMENTS_AND_NAMES(UIScene)
 		UI_MAP_ELEMENT( m_buttons[(int)eControl_PlayGame], "Button1")
-		UI_MAP_ELEMENT( m_buttons[(int)eControl_Leaderboards], "Button2")
-		UI_MAP_ELEMENT( m_buttons[(int)eControl_Achievements], "Button3")
-		UI_MAP_ELEMENT( m_buttons[(int)eControl_HelpAndOptions], "Button4")
-		UI_MAP_ELEMENT( m_buttons[(int)eControl_UnlockOrDLC], "Button5")
+		UI_MAP_ELEMENT(m_buttons[(int)eControl_MiniGames], "Button2")
+		UI_MAP_ELEMENT( m_buttons[(int)eControl_Leaderboards], "Button3")
+		UI_MAP_ELEMENT( m_buttons[(int)eControl_Achievements], "Button4")
+		UI_MAP_ELEMENT( m_buttons[(int)eControl_HelpAndOptions], "Button5")
+		UI_MAP_ELEMENT( m_buttons[(int)eControl_UnlockOrDLC], "Button6")
+
 #ifndef _DURANGO
-		UI_MAP_ELEMENT( m_buttons[(int)eControl_MiniGames], "Button7")
-		UI_MAP_ELEMENT( m_buttons[(int)eControl_Exit], "Button6")
-		
+		UI_MAP_ELEMENT(m_buttons[(int)eControl_Exit], "Button7")
 #else
-		UI_MAP_ELEMENT( m_buttons[(int)eControl_XboxHelp], "Button6")
+		UI_MAP_ELEMENT( m_buttons[(int)eControl_XboxHelp], "Button7")
 #endif
 		UI_MAP_ELEMENT( m_controlTimer, "Timer")
 	UI_END_MAP_ELEMENTS_AND_NAMES()
@@ -83,6 +83,7 @@ private:
 		eAction_RunAchievements,
 		eAction_RunHelpAndOptions,
 		eAction_RunUnlockOrDLC,
+		eAction_RunMinigames,
 #if defined(__PS3__)|| defined(__PSVITA__) || defined(__ORBIS__)
 		eAction_RunLeaderboardsPSN,
 		eAction_RunGamePSN,
@@ -145,6 +146,7 @@ private:
 	void RunUnlockOrDLC(int iPad);
 	void RunAchievements(int iPad);
 	void RunHelpAndOptions(int iPad);
+	void RunMinigames(int iPad);
 
 	void RunAction(int iPad);
 	

@@ -340,7 +340,7 @@ void UIScene_MainMenu::handlePress(F64 controlId, F64 childId)
 			ProfileManager.RefreshChatAndContentRestrictions(RefreshChatAndContentRestrictionsReturned_PlayGame, this);
 		}
 #else
-		m_eAction=eAction_RunGame;
+		m_eAction=eAction_RunMinigames;
 		//CD - Added for audio
 		ui.PlayUISFX(eSFX_Press);
 
@@ -447,6 +447,9 @@ void UIScene_MainMenu::RunAction(int iPad)
 	case eAction_RunGame:
 		RunPlayGame(iPad);
 		break;
+	case eAction_RunMinigames:
+		RunMinigames(iPad);
+		break;
 	case eAction_RunLeaderboards:
 		RunLeaderboards(iPad);
 		break;
@@ -540,6 +543,7 @@ int UIScene_MainMenu::MustSignInReturned(void *pParam, int iPad, C4JStorage::EMe
 		switch(pClass->m_eAction)
 		{
 		case eAction_RunGame:			ProfileManager.RequestSignInUI(false,  true, false, false, true, &UIScene_MainMenu::CreateLoad_SignInReturned,		pClass,	iPad );	break;
+		case eAction_RunMinigames:		ProfileManager.RequestSignInUI(false, true, false, false, true, &UIScene_MainMenu::CreateLoad_SignInReturned, pClass, iPad);	break;
 		case eAction_RunHelpAndOptions:	ProfileManager.RequestSignInUI(false, false,  true, false, true, &UIScene_MainMenu::HelpAndOptions_SignInReturned,	pClass,	iPad );	break;										 	   
 		case eAction_RunLeaderboards:	ProfileManager.RequestSignInUI(false, false,  true, false, true, &UIScene_MainMenu::Leaderboards_SignInReturned,	pClass,	iPad );	break;										 	   
 		case eAction_RunAchievements:	ProfileManager.RequestSignInUI(false, false,  true, false, true, &UIScene_MainMenu::Achievements_SignInReturned,	pClass,	iPad );	break;										 	   
@@ -1643,6 +1647,105 @@ void UIScene_MainMenu::RunLeaderboards(int iPad)
 		}
 	}
 }
+
+void UIScene_MainMenu::RunMinigames(int iPad)
+{
+	UINT uiIDA[1];
+	uiIDA[0] = IDS_OK;
+
+	// guests can't look at leaderboards
+	if (ProfileManager.IsGuest(iPad))
+	{
+		ui.RequestErrorMessage(IDS_PRO_GUESTPROFILE_TITLE, IDS_PRO_GUESTPROFILE_TEXT, uiIDA, 1);
+	}
+	else if (!ProfileManager.IsSignedInLive(iPad))
+	{
+#if defined __PS3__ || defined __PSVITA__
+		m_eAction = eAction_RunLeaderboardsPSN;
+		// get them to sign in to online
+		UINT uiIDA[1];
+		uiIDA[0] = IDS_PRO_NOTONLINE_ACCEPT;
+		ui.RequestErrorMessage(IDS_PRO_NOTONLINE_TITLE, IDS_PRO_NOTONLINE_TEXT, uiIDA, 1, ProfileManager.GetPrimaryPad(), &UIScene_MainMenu::MustSignInReturnedPSN, this);
+
+		/* 4J-PB - Add this after release
+		#elif defined __PSVITA__
+				m_eAction=eAction_RunLeaderboardsPSN;
+				// Determine why they're not "signed in live"
+				if (ProfileManager.IsSignedInPSN(iPad))
+				{
+					// Signed in to PSN but not connected (no internet access)
+					UINT uiIDA[1];
+					uiIDA[0] = IDS_PRO_NOTONLINE_ACCEPT;
+					ui.RequestMessageBox(IDS_PRO_CURRENTLY_NOT_ONLINE_TITLE, IDS_PRO_PSNOFFLINE_TEXT, uiIDA, 1, ProfileManager.GetPrimaryPad(), &UIScene_MainMenu::MustSignInReturnedPSN, this, app.GetStringTable());
+				}
+				else
+				{
+					// Not signed in to PSN
+					UINT uiIDA[1];
+					uiIDA[0] = IDS_PRO_NOTONLINE_ACCEPT;
+					ui.RequestMessageBox(IDS_PRO_NOTONLINE_TITLE, IDS_PRO_NOTONLINE_TEXT, uiIDA, 1, ProfileManager.GetPrimaryPad(), &UIScene_MainMenu::MustSignInReturnedPSN, this, app.GetStringTable());
+					return;
+				}*/
+#elif defined __ORBIS__
+		m_eAction = eAction_RunLeaderboardsPSN;
+		// Determine why they're not "signed in live"
+		if (ProfileManager.isSignedInPSN(iPad))
+		{
+			// Signed in to PSN but not connected (no internet access)
+			assert(!ProfileManager.isConnectedToPSN(iPad));
+
+			UINT uiIDA[1];
+			uiIDA[0] = IDS_OK;
+			ui.RequestErrorMessage(IDS_ERROR_NETWORK_TITLE, IDS_ERROR_NETWORK, uiIDA, 1, iPad);
+		}
+		else
+		{
+			// Not signed in to PSN
+			UINT uiIDA[1];
+			uiIDA[0] = IDS_PRO_NOTONLINE_ACCEPT;
+			ui.RequestErrorMessage(IDS_PRO_NOTONLINE_TITLE, IDS_PRO_NOTONLINE_TEXT, uiIDA, 1, ProfileManager.GetPrimaryPad(), &UIScene_MainMenu::MustSignInReturnedPSN, this);
+			return;
+		}
+#else
+		ui.RequestErrorMessage(IDS_PRO_NOTONLINE_TITLE, IDS_PRO_XBOXLIVE_NOTIFICATION, uiIDA, 1);
+#endif
+	}
+	else
+	{
+		// we're supposed to check for parental control restrictions before showing leaderboards
+		// The title enforces the user's NP parental control setting for age-based content
+		//restriction in network communications.
+		// If age restrictions are in place and the user's age does not meet
+		// the age restriction of the title's online service content rating (CERO, ESRB, PEGI, etc.), then the title must
+		//display a message such as the following and disallow online service for this user.
+
+		bool bContentRestricted = false;
+#if defined(__PS3__) || defined(__PSVITA__)
+		ProfileManager.GetChatAndContentRestrictions(iPad, true, nullptr, &bContentRestricted, nullptr);
+#endif
+		if (bContentRestricted)
+		{
+#if !(defined(_XBOX) || defined(_WINDOWS64) || defined(_XBOX_ONE)) // 4J Stu - Temp to get the win build running, but so we check this for other platforms
+			// you can't see leaderboards
+			UINT uiIDA[1];
+			uiIDA[0] = IDS_CONFIRM_OK;
+			ui.RequestErrorMessage(IDS_ONLINE_SERVICE_TITLE, IDS_CONTENT_RESTRICTION, uiIDA, 1, ProfileManager.GetPrimaryPad(), nullptr, this);
+#endif
+		}
+		else
+		{
+			ProfileManager.SetLockedProfile(iPad);
+			// If the player was signed in before selecting play, we'll not have read the profile yet, so query the sign-in status to get this to happen
+			ProfileManager.QuerySigninStatus();
+
+#ifdef _XBOX_ONE
+			ui.ShowPlayerDisplayname(true);
+#endif
+			proceedToScene(iPad, eUIScene_LoadCreateJoinMinigames);
+		}
+	}
+}
+
 void UIScene_MainMenu::RunUnlockOrDLC(int iPad)
 {
 	UINT uiIDA[1];

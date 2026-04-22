@@ -71,6 +71,7 @@
 #include "UIScene_JoinMenu.h"
 #include "UIScene_LoadOrJoinMenu.h"
 #include "UIScene_LoadCreateJoinMenu.h"
+#include "UIScene_LoadCreateJoinMinigames.h"
 #include "UIScene_CreateWorldMenu.h"
 #include "UIScene_LaunchMoreOptionsMenu.h"
 #include "UIScene_FullscreenProgress.h"
