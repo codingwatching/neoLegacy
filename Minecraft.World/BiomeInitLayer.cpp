@@ -1,4 +1,4 @@
-﻿#include "stdafx.h"
+#include "stdafx.h"
 #include "net.minecraft.world.level.biome.h"
 #include "net.minecraft.world.level.newbiome.layer.h"
 #include "net.minecraft.world.level.h"
@@ -90,66 +90,80 @@ intArray BiomeInitLayer::getArea(int xo, int yo, int w, int h)
                 {
                     initRandom(x + xo, y + yo);
 
-                    int val = b[x + y * w];
-                    int v18 = (val >> 8) & 0xF;
-                    int v19 = val & 0xFFFFF0FF;
+                    int val  = b[x + y * w];
+                    
+                    int v18  = (val >> 8) & 0xF;
+                   
+                    int v19  = val & 0xFFFFF0FF;
 
+                    
                     if (customSettings && customSettings->biome >= 0)
                     {
                         result[x + y * w] = customSettings->biome;
                         continue;
                     }
 
+                    
                     if (isOcean(v19) || v19 == Biome::mushroomIsland->id)
                     {
                         result[x + y * w] = v19;
                         continue;
                     }
 
+                    
                     if (v19 == 1)
                     {
                         if (v18 <= 0)
                         {
+                            
                             result[x + y * w] = desertBiomes[nextRandom(desertBiomes.length)]->id;
                         }
-                        else if (nextRandom(3))
+                        else if (nextRandom(3) != 0)
                         {
                             result[x + y * w] = Biome::mesaPlateauF->id;
                         }
                         else
                         {
-                            result[x + y * w] = Biome::plains->id;
+                            result[x + y * w] = Biome::mesaPlateau->id;
                         }
                     }
+                    
                     else if (v19 == 2)
                     {
                         if (v18 <= 0)
                         {
+                            
                             result[x + y * w] = warmBiomes[nextRandom(warmBiomes.length)]->id;
                         }
                         else
                         {
+                            
                             result[x + y * w] = Biome::jungle->id;
                         }
                     }
+                    
                     else if (v19 == 3)
                     {
                         if (v18 <= 0)
                         {
+                            
                             result[x + y * w] = coolBiomes[nextRandom(coolBiomes.length)]->id;
                         }
                         else
                         {
+                            
                             result[x + y * w] = Biome::megaTaiga->id;
                         }
                     }
+
                     else if (v19 == 4)
                     {
                         result[x + y * w] = icyBiomes[nextRandom(icyBiomes.length)]->id;
                     }
                     else
                     {
-                        result[x + y * w] = v19; 
+                        
+                        result[x + y * w] = v19;
                     }
                 }
             }

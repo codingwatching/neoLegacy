@@ -105,6 +105,7 @@ Biome* ExtremeHillsBiome::mutateHills(Biome* baseBiome)
     this->setName(baseBiome->m_name + L" M");
     this->setDepthAndScale(baseBiome->depth, baseBiome->scale);
     this->setTemperatureAndDownfall(baseBiome->temperature, baseBiome->downfall);
+    this->setWaterSkyColor(baseBiome->getWaterColor(), baseBiome->getSkyColor());
     return this;
 }
 
