@@ -191,12 +191,12 @@ Feature* MesaBiome::getTreeFeature(Random* random)
 
 int MesaBiome::getFolageColor() const
 {
-    return eMinecraftColour_Foliage_Mesa;
+    return 0x9E814D;
 }
 
 int MesaBiome::getGrassColor() const
 {
-    return eMinecraftColour_Grass_Mesa;
+    return 0x90814D;
 }
 
 void MesaBiome::buildSurfaceAtDefault(Level* level, Random* random,
@@ -226,7 +226,7 @@ void MesaBiome::buildSurfaceAtDefault(Level* level, Random* random,
     double pillarHeight = 0.0;
 
     
-    if (isMesaPlateau)
+    if (isMesaPlateau&& id == Biome::mesaBryce->id)
 {
     double nx = static_cast<double>((x & ~0xF) + localZ);
     double nz = static_cast<double>((z & ~0xF) + localX);
@@ -390,7 +390,7 @@ MesaBiome* MesaBiome::createMutatedCopy(int newId)
     if (!isMesaBase)
     {
         
-        copy->setDepthAndScale(0.1f, 0.3f);
+        copy->setDepthAndScale(0.1f, 0.2f);
     }
 
     copy->setWaterSkyColor(this->getWaterColor(), this->getSkyColor());
