@@ -166,6 +166,7 @@ static void PrintUsage()
 	ServerRuntime::LogInfo("usage", "  -maxplayers <1-8>     Public slots (default: server.properties:max-players)");
 	ServerRuntime::LogInfo("usage", "  -seed <int64>         World seed (overrides server.properties:level-seed)");
 	ServerRuntime::LogInfo("usage", "  -loglevel <level>     debug|info|warn|error (default: server.properties:log-level)");
+	ServerRuntime::LogInfo("usage", "  -perftrace            Enable noisy [perf] sampling output (histograms, per-iter samples)");
 	ServerRuntime::LogInfo("usage", "  -help                 Show this help");
 }
 
@@ -271,6 +272,10 @@ static bool ParseCommandLine(int argc, char **argv, DedicatedServerConfig *confi
 				LogError("startup", "Invalid -loglevel value. Use debug/info/warn/error.");
 				return false;
 			}
+		}
+		else if (_stricmp(arg, "-perftrace") == 0)
+		{
+			ServerRuntime::g_serverPerfTrace = true;
 		}
 		else
 		{
