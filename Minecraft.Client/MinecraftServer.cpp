@@ -2317,21 +2317,11 @@ void MinecraftServer::tick()
 			{
 				players->broadcastAll(std::make_shared<SetTimePacket>(level->getGameTime(), level->getDayTime(), level->getGameRules()->getBoolean(GameRules::RULE_DAYLIGHT)), level->dimension->id);
 			}
-			// Gate the per-level tick body on dimension activity. Empty
-			// dimensions skip Level::tick / tickEntities / tracker tick so
-			// stale chunks loaded by a prior visit do not consume budget.
-			// Gametime and weather pause for empty dimensions until a
-			// player returns.
-			bool dimensionActive = (players->getPlayerCount(level) > 0) || level->hasEntitiesToRemove();
-
 			// #ifndef __PS3__
 			static int64_t stc = 0;
 			int64_t st0 = System::currentTimeMillis();
 			PIXBeginNamedEvent(0,"Level tick %d",i);
-			if (dimensionActive)
-			{
-				static_cast<Level *>(level)->tick();
-			}
+			static_cast<Level *>(level)->tick();
 			int64_t st1 = System::currentTimeMillis();
 			PIXEndNamedEvent();
 			PIXBeginNamedEvent(0,"Update lights %d",i);
@@ -2339,7 +2329,8 @@ void MinecraftServer::tick()
 			int64_t st2 = System::currentTimeMillis();
 			PIXEndNamedEvent();
 			PIXBeginNamedEvent(0,"Entity tick %d",i);
-			if (dimensionActive)
+			// 4J added: do not tick entities in empty dimensions.
+			if ((players->getPlayerCount(level) > 0) || level->hasEntitiesToRemove())
 			{
 #ifdef __PSVITA__
 				// AP - the PlayerList->viewDistance initially starts out at 3 to make starting a level speedy
@@ -2359,10 +2350,7 @@ void MinecraftServer::tick()
 			int64_t stEntDone = System::currentTimeMillis();
 
 			PIXBeginNamedEvent(0,"Entity tracker tick");
-			if (dimensionActive)
-			{
-				level->getTracker()->tick();
-			}
+			level->getTracker()->tick();
 			PIXEndNamedEvent();
 
 			int64_t st3 = System::currentTimeMillis();
