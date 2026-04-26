@@ -993,6 +993,7 @@ int UIScene_PauseMenu::UnlockFullSaveReturned(void *pParam,int iPad,C4JStorage::
 				ProfileManager.DisplayFullVersionPurchase(false,pMinecraft->player->GetXboxPad(),eSen_UpsellID_Full_Version_Of_Game);
 			}
 		}
+		pMinecraft->forceStatsSave(pMinecraft->player->GetXboxPad());
 	}
 	else
 	{

@@ -16,13 +16,13 @@ UIScene_AchievementsMenu::UIScene_AchievementsMenu(int iPad, void* _initData, UI
 	// Setup all the Iggy references we need for this scene
 	initialiseMovie();
 	
-	RECT rc;
+	/*RECT rc;
 	GetClientRect(g_hWnd, &rc);
 	POINT center;
 	center.x = rc.left;
 	center.y = rc.top;
 	ClientToScreen(g_hWnd, &center);
-	SetCursorPos(center.x, center.y);
+	SetCursorPos(center.x, center.y);*/
 
 	m_labelAchievements.init(L"Achievements");
 	//m_labelDesc.init(L"");
@@ -46,7 +46,13 @@ UIScene_AchievementsMenu::UIScene_AchievementsMenu(int iPad, void* _initData, UI
 		std::string result = "Graphics\\Achievements\\" "TROP" + Achievements::achievements->at(i)->iconInt + ".png"; //media\\
 		
 		m_achievementsList.addnewItem(i+1, path);
-		if (Minecraft::GetInstance()->stats[Minecraft::GetInstance()->player->GetXboxPad()]->hasTaken(Achievements::achievements->at(i)))
+
+		int newPad = 0;
+		if (Minecraft::GetInstance()->player != nullptr) {
+			newPad = Minecraft::GetInstance()->player->GetXboxPad();
+		}
+
+		if (Minecraft::GetInstance()->stats[newPad]->hasTaken(Achievements::achievements->at(i)))
 		{
 			m_achievementsList.EnableButton(i, true);
 		}
@@ -63,8 +69,7 @@ UIScene_AchievementsMenu::UIScene_AchievementsMenu(int iPad, void* _initData, UI
 
 void UIScene_AchievementsMenu::handleDestroy()
 {
-#ifdef _WINDOWS64
-#endif
+	m_parentLayer->showComponent(m_iPad, eUIComponent_MenuBackground, false);
 }
 
 void UIScene_AchievementsMenu::SetAchievementDescription(wstring desc) {
@@ -102,8 +107,12 @@ wstring UIScene_AchievementsMenu::getMoviePath()
 
 void UIScene_AchievementsMenu::updateComponents()
 {
+	bool bNotInGame = (Minecraft::GetInstance()->level == nullptr);
+	if (!bNotInGame)
+	{
+		m_parentLayer->showComponent(m_iPad, eUIComponent_MenuBackground, true);
+	}
 	m_parentLayer->showComponent(m_iPad, eUIComponent_Logo, false);
-	m_parentLayer->showComponent(m_iPad, eUIComponent_MenuBackground, false);
 }
 
 void UIScene_AchievementsMenu::handleInput(int iPad, int key, bool repeat, bool pressed, bool released, bool& handled)

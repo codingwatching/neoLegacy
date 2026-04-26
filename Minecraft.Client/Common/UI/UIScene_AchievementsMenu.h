@@ -28,7 +28,6 @@ private:
 		UI_MAP_ELEMENT(m_labelAchievements, "AcheivementsLabel")
 		UI_MAP_ELEMENT(m_labelName, "AchievementName")
 		UI_MAP_ELEMENT(m_labelDesc, "AchievementDescription")
-		UI_MAP_ELEMENT(m_cursorPath1, "cursor")
 		//UI_MAP_ELEMENT(m_achievementsList, "AchievementsList")
 		UI_MAP_ELEMENT(m_controlMainPanel, "AchievementsListContainer")
 		UI_MAP_NAME(m_funcSetDesc, L"SetAchievementDescription")

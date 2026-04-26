@@ -1916,7 +1916,7 @@ GDrawTexture * RADLINK UIController::TextureSubstitutionCreateCallback ( void * 
             UIScene *scene = uiController->GetTopScene(0);
 			//Fix for icon size changing on Achievements
 			if (scene) {
-				if (scene->getSceneResolution() == UIScene::eSceneResolution_1080 && scene->getSceneType() != eUIScene_PauseMenu && isSub == false)
+				if (scene->getSceneResolution() == UIScene::eSceneResolution_1080 && (scene->getSceneType() != eUIScene_PauseMenu && scene->getSceneType() != eUIScene_MainMenu && scene->getSceneType() != eUIScene_AchievementsMenu) && isSub == false)
 				{
 					*width = 96;
 					*height = 96;
