@@ -136,14 +136,14 @@ int ArmorItem::getUseDuration(shared_ptr<ItemInstance> itemInstance)
 }
 
 shared_ptr<ItemInstance> ArmorItem::use(shared_ptr<ItemInstance> instance, Level* level, shared_ptr<Player> player) {
-	ByteArrayOutputStream baos;
+	/*ByteArrayOutputStream baos;
 	DataOutputStream dos(&baos);
 	Packet::writeItem(instance, &dos);
 	for (int i = 0; i < XUSER_MAX_COUNT; i++) {
 		if (Minecraft::GetInstance()->localplayers[i] == player) {
 			Minecraft::GetInstance()->localplayers[i]->connection->send(std::make_shared<CustomPayloadPacket>(CustomPayloadPacket::QUICK_EQUIP_PACKET, baos.toByteArray()));
 		}
-	}
+	}*/
 
 	int material = Item::items[instance->id]->getMaterial();
 	int lo, hi;
