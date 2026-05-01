@@ -35,5 +35,5 @@ Huge thanks to the following projects:
 
 We provide both a generic build script and a Nix flake.
 
-- Nix: `nix run .#client`
+- Nix: `nix run .#client` (not recommended)
 - Generic: `./build-linux.sh`
