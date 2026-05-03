@@ -60,7 +60,7 @@ extern bool g_Win64DedicatedServer;
 #endif
 
 //neo: added
-#include "../Minecraft.World/ItemNameMap.h"
+#include "ItemNameMap.h"
 
 namespace
 {
