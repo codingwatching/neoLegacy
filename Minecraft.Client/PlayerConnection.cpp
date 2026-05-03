@@ -61,6 +61,7 @@ extern bool g_Win64DedicatedServer;
 
 //neo: added
 #include "ItemNameMap.h"
+#include "../Minecraft.World/ByteArrayOutputStream.h"
 
 namespace
 {
@@ -1131,19 +1132,10 @@ if (cmd == L"tp" || cmd == L"teleport")
             ? static_cast<byte>(tpTarget->xRot)
             : static_cast<byte>(stoi(sXRot) & 0xFF);
 
-        TeleportEntityPacket packet(
-            tpTarget->entityId,
-            static_cast<int>(x),
-            static_cast<int>(y),
-            static_cast<int>(z),
-            yRot,
-            xRot
-        );
-		DataOutputStream ds(OutputStream::createMemoryStream());
-		packet.write(&ds);
-		shared_ptr<GameCommandPacket> gamePacket = make_shared<GameCommandPacket>(eGameCommand_Teleport, ds.getData());
+        shared_ptr<GameCommandPacket> gamePacket = TeleportCommand::preparePacket(
+            tpTarget->getXuid(), x, y, z, yRot, xRot);
         server->getCommandDispatcher()->performCommand(tpTarget, eGameCommand_Teleport, gamePacket->data);
-    }
+	}
 } else if (cmd == L"time")
 {
     if (!player->hasPermission(eGameCommand_Time))
