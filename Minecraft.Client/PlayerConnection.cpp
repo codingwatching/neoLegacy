@@ -59,6 +59,9 @@
 extern bool g_Win64DedicatedServer;
 #endif
 
+//neo: added
+#include "../Minecraft.World/ItemNameMap.h"
+
 namespace
 {
 	// Anti-cheat thresholds. Keep server-side checks authoritative even in host mode.
@@ -1135,7 +1138,7 @@ void PlayerConnection::handleCommand(const wstring& message)
     	wstring targetName, itemStr, amountStr, auxStr;
     	ss >> targetName >> itemStr >> amountStr >> auxStr;
     	if (targetName.empty() || itemStr.empty()) {
-        	warn(L"Usage: /give <player> <item_id> [amount] [data]");
+        	warn(L"Usage: /give <player> <item_id>|minecraft:<item_name> [amount] [data]");
         	return;
     	}
 
@@ -1144,14 +1147,14 @@ void PlayerConnection::handleCommand(const wstring& message)
         	warn(L"Player not found: " + targetName);
         	return;
     	}
-
-    	int item, amount = 1, aux = 0;
+		int item = 0;
+    	int amount = 1, aux = 0;
     	try {
-        	item = std::stoi(itemStr);
+        	item = itemStr.find(L"minecraft:") == 0 ? GetItemIdByName(itemStr.substr(10)) : std::stoi(itemStr);
         	if (!amountStr.empty()) amount = std::stoi(amountStr);
         	if (!auxStr.empty()) aux = std::stoi(auxStr);
     	} catch (...) {
-        	warn(L"Invalid item ID or amount");
+        	warn(L"Invalid item ID/Name or amount");
         	return;
     	}
 
