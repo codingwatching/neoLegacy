@@ -49,6 +49,10 @@ file(WRITE "${_tmp}"
 "    auto it = g_ItemNameMap.find(name);\n"
 "    return (it != g_ItemNameMap.end()) ? it->second : -1;\n"
 "}\n"
+"inline int GetItemIdByName(const std::wstring& name)\n"
+"{\n"
+"    return GetItemIdByName(std::string(name.begin(), name.end()));\n"
+"}\n"
 )
 
 if(EXISTS "${OUTPUT_FILE}")
