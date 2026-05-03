@@ -107,8 +107,8 @@ body:
     attributes:
       label: Launcher
       placeholder: e.g. Emerald Launcher
-      validations:
-        required: true
+    validations:
+      required: true
 
   - type: textarea
     id: additional
