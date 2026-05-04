@@ -1,6 +1,6 @@
 ![Banner](https://github.com/pieeebot/neoLegacy/raw/main/.github/banner.png)
 
-# neoLegacy v1.0.1
+# neoLegacy v1.0.1b
 
 - Classic Crafting
 - Commands support!
